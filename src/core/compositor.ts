@@ -426,9 +426,9 @@ function drawChart(context: CanvasRenderingContext2D, rows: DataRow[], columns: 
     context.fillText(String(row[label] ?? index + 1).slice(0, 18), rect.x + padding, y, labelWidth - padding);
     const barX = rect.x + padding + labelWidth;
     const maxWidth = rect.width - padding * 2 - labelWidth;
-    context.fillStyle = light ? "rgba(37,99,235,.12)" : "rgba(96,165,250,.18)";
+    context.fillStyle = light ? "rgba(104,18,47,.12)" : "rgba(104,18,47,.18)";
     context.fillRect(barX, y - rowHeight * 0.22, maxWidth, rowHeight * 0.44);
-    context.fillStyle = light ? "#2563eb" : "#60a5fa";
+    context.fillStyle = light ? "#68122f" : "#68122f";
     context.fillRect(barX, y - rowHeight * 0.22, (Math.abs(values[index]) / maximum) * maxWidth, rowHeight * 0.44);
     context.fillStyle = light ? "#17151c" : "#ffffff";
     context.textAlign = "right";
@@ -462,7 +462,7 @@ function drawData(context: CanvasRenderingContext2D, asset: StudioAsset, rect: R
   const rowHeight = (rect.height - padding * 2) / Math.max(visible.length + 1, 1);
   context.font = `700 ${fontSize}px system-ui`;
   columns.forEach((column, index) => {
-    context.fillStyle = light ? "#1d4ed8" : "#60a5fa";
+    context.fillStyle = light ? "#18181b" : "#68122f";
     context.fillText(column.slice(0, 18), rect.x + padding + index * cellWidth, rect.y + padding + rowHeight / 2, cellWidth - 10);
   });
   context.font = `500 ${fontSize}px system-ui`;

@@ -284,7 +284,7 @@ export function drawCanvasWidgets(context: CanvasRenderingContext2D, width: numb
       context.lineWidth = widget.active ? Math.max(3, rect.width * .028) : Math.max(1.5, rect.width * .015);
       roundedRect(context, rect, radius);
       context.stroke();
-      context.fillStyle = widget.active ? "#2563eb" : "rgba(23,19,17,.84)";
+      context.fillStyle = widget.active ? "#68122f" : "rgba(23,19,17,.84)";
       context.beginPath();
       context.arc(rect.x + rect.width * .82, rect.y + rect.height * .2, rect.height * .14, 0, Math.PI * 2);
       context.fill();
@@ -309,7 +309,7 @@ export function drawCanvasWidgets(context: CanvasRenderingContext2D, width: numb
       context.font = `500 ${Math.max(12, rect.width * .052)}px Manrope, sans-serif`;
       widget.items.slice(0, widget.revealed || widget.items.length).forEach((item, index) => {
         const y = rect.y + rect.height * (.36 + index * .18);
-        context.fillStyle = widget.color ?? "#2563eb";
+        context.fillStyle = widget.color ?? "#68122f";
         context.beginPath();
         context.arc(rect.x + rect.width * .1, y - 4, 3.5, 0, Math.PI * 2);
         context.fill();
@@ -320,9 +320,9 @@ export function drawCanvasWidgets(context: CanvasRenderingContext2D, width: numb
       const cx = rect.x + rect.width / 2;
       const cy = rect.y + rect.height / 2;
       if (widget.playing) {
-        context.shadowColor = "rgba(37,99,235,.32)";
+        context.shadowColor = "rgba(104,18,47,.32)";
         context.shadowBlur = Math.max(10, rect.width * .12);
-        context.strokeStyle = "#2563eb";
+        context.strokeStyle = "#68122f";
         context.lineWidth = Math.max(3, rect.width * .035);
         context.beginPath(); context.arc(cx, cy, rect.width * .56, 0, Math.PI * 2); context.stroke();
         context.shadowColor = "transparent";
@@ -334,14 +334,14 @@ export function drawCanvasWidgets(context: CanvasRenderingContext2D, width: numb
       context.beginPath(); context.arc(0, 0, rect.width / 2, 0, Math.PI * 2); context.fill();
       context.strokeStyle = "rgba(255,255,255,.22)";
       for (let ring = .22; ring < .46; ring += .07) { context.beginPath(); context.arc(0, 0, rect.width * ring, 0, Math.PI * 2); context.stroke(); }
-      context.fillStyle = widget.color ?? "#2563eb";
+      context.fillStyle = widget.color ?? "#68122f";
       context.beginPath(); context.arc(0, 0, rect.width * .18, 0, Math.PI * 2); context.fill();
       context.fillStyle = "#fffefa";
       context.beginPath(); context.arc(0, 0, rect.width * .035, 0, Math.PI * 2); context.fill();
       context.restore();
       if (widget.playing) {
         const badgeRadius = rect.width * .115;
-        context.fillStyle = "#2563eb";
+        context.fillStyle = "#68122f";
         context.beginPath(); context.arc(rect.width * .38, -rect.height * .38, badgeRadius, 0, Math.PI * 2); context.fill();
         context.fillStyle = "#fffefa";
         context.beginPath();
