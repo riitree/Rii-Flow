@@ -1,0 +1,946 @@
+/* Theme layer: visual-only CSS, isolated from the camera, compositor and recorder. */
+
+html[data-theme="dark"] {
+  color-scheme: dark;
+  background: #0d1016;
+}
+
+html[data-theme="light"] {
+  color-scheme: light;
+  background: #f3f1ec;
+}
+
+.app-brand .theme-toggle {
+  width: 38px;
+  height: 38px;
+  min-height: 38px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  margin-left: auto;
+  padding: 0;
+  border: 1px solid var(--rii-line);
+  border-radius: 50%;
+  color: var(--rii-accent);
+  background: var(--rii-panel);
+}
+
+.app-brand .theme-toggle:hover {
+  border-color: var(--rii-accent);
+  background: var(--rii-accent-soft);
+}
+
+.app-shell[data-theme="dark"] {
+  --rii-accent: #6f8cff;
+  --rii-accent-strong: #8ca3ff;
+  --rii-accent-soft: #222d55;
+  --rii-bg: #0d1016;
+  --rii-panel: #151922;
+  --rii-panel-soft: #1a1f2a;
+  --rii-panel-raised: #202633;
+  --rii-line: #303746;
+  --rii-line-strong: #424b5d;
+  --rii-text: #f5f2eb;
+  --rii-muted: #a9b0bd;
+  --rii-ready: #66c995;
+  color: var(--rii-text);
+  background: var(--rii-bg);
+}
+
+.app-shell[data-theme="dark"] .studio-grid,
+.app-shell[data-theme="dark"] .library-panel,
+.app-shell[data-theme="dark"] .center-panel,
+.app-shell[data-theme="dark"] .signal-rail {
+  color: var(--rii-text);
+  background: var(--rii-bg);
+  border-color: var(--rii-line);
+}
+
+.app-shell[data-theme="dark"] .library-panel,
+.app-shell[data-theme="dark"] .signal-rail {
+  background: var(--rii-panel);
+}
+
+.app-shell[data-theme="dark"] .app-brand h1,
+.app-shell[data-theme="dark"] .panel-title h2,
+.app-shell[data-theme="dark"] .asset-copy strong,
+.app-shell[data-theme="dark"] .scene-section-heading strong,
+.app-shell[data-theme="dark"] .workspace-destination strong,
+.app-shell[data-theme="dark"] .console-state strong,
+.app-shell[data-theme="dark"] .recording-clock strong,
+.app-shell[data-theme="dark"] .signal-rail strong,
+.app-shell[data-theme="dark"] .take-copy strong {
+  color: var(--rii-text);
+}
+
+.app-shell[data-theme="dark"] .app-brand small,
+.app-shell[data-theme="dark"] .project-bar label > span,
+.app-shell[data-theme="dark"] .project-name-field > span,
+.app-shell[data-theme="dark"] .panel-title span,
+.app-shell[data-theme="dark"] .section-label span,
+.app-shell[data-theme="dark"] .support-copy,
+.app-shell[data-theme="dark"] .workspace-destination small,
+.app-shell[data-theme="dark"] .workspace-destination em,
+.app-shell[data-theme="dark"] .project-save-state,
+.app-shell[data-theme="dark"] .asset-copy small,
+.app-shell[data-theme="dark"] .asset-inline-controls label > span,
+.app-shell[data-theme="dark"] .scene-inline-controls label > span,
+.app-shell[data-theme="dark"] .source-toolbar label > span,
+.app-shell[data-theme="dark"] .signal-rail small,
+.app-shell[data-theme="dark"] .signal-rail em,
+.app-shell[data-theme="dark"] .take-copy small,
+.app-shell[data-theme="dark"] .take-copy em {
+  color: var(--rii-muted);
+}
+
+.app-shell[data-theme="dark"] .project-bar,
+.app-shell[data-theme="dark"] .workspace-destination,
+.app-shell[data-theme="dark"] .asset-item,
+.app-shell[data-theme="dark"] .asset-item.inline-asset,
+.app-shell[data-theme="dark"] .scene-item,
+.app-shell[data-theme="dark"] .library-advanced,
+.app-shell[data-theme="dark"] .source-toolbar,
+.app-shell[data-theme="dark"] .studio-console,
+.app-shell[data-theme="dark"] .signal-rail > section,
+.app-shell[data-theme="dark"] .takes-inline-panel,
+.app-shell[data-theme="dark"] .take-trim-panel,
+.app-shell[data-theme="dark"] .camera-frame-panel {
+  color: var(--rii-text);
+  border-color: var(--rii-line);
+  background: var(--rii-panel-raised);
+}
+
+.app-shell[data-theme="dark"] .workspace-destination,
+.app-shell[data-theme="dark"] .preflight-checks > span,
+.app-shell[data-theme="dark"] .empty-assets,
+.app-shell[data-theme="dark"] .recording-clock,
+.app-shell[data-theme="dark"] .take-trim-panel .trim-timeline {
+  color: var(--rii-text);
+  border-color: var(--rii-line);
+  background: var(--rii-panel-soft);
+}
+
+.app-shell[data-theme="dark"] .asset-item.focused,
+.app-shell[data-theme="dark"] .scene-item.focused {
+  border-color: var(--rii-accent);
+  background: #1c2440;
+  box-shadow: inset 3px 0 var(--rii-accent);
+}
+
+.app-shell[data-theme="dark"] .scene-control {
+  color: var(--rii-text);
+  border-color: #3d4d70;
+  background: #1b2332;
+}
+
+.app-shell[data-theme="dark"] .scene-control:hover:not(:disabled),
+.app-shell[data-theme="dark"] .scene-control[aria-expanded="true"] {
+  color: var(--rii-accent-strong);
+  border-color: var(--rii-accent);
+  background: var(--rii-accent-soft);
+}
+
+.app-shell[data-theme="dark"] .scene-control-copy strong {
+  color: var(--rii-text);
+}
+
+.app-shell[data-theme="dark"] .scene-control-copy small {
+  color: var(--rii-muted);
+}
+
+.app-shell[data-theme="dark"] .source-toolbar > label,
+.app-shell[data-theme="dark"] .source-toolbar > button,
+.app-shell[data-theme="dark"] .camera-frame-toolbar,
+.app-shell[data-theme="dark"] .camera-frame-toolbar button {
+  color: var(--rii-text);
+  border-color: var(--rii-line);
+  background: var(--rii-panel-raised);
+}
+
+.app-shell[data-theme="dark"] .source-toolbar > button:hover,
+.app-shell[data-theme="dark"] .source-toolbar > button.active,
+.app-shell[data-theme="dark"] .camera-frame-toolbar button:hover,
+.app-shell[data-theme="dark"] .camera-frame-toolbar button.active {
+  color: var(--rii-accent-strong);
+  background: var(--rii-accent-soft);
+}
+
+.app-shell[data-theme="dark"] input,
+.app-shell[data-theme="dark"] select,
+.app-shell[data-theme="dark"] textarea,
+.app-shell[data-theme="dark"] .select-box,
+.app-shell[data-theme="dark"] .project-bar input,
+.app-shell[data-theme="dark"] .project-bar select,
+.app-shell[data-theme="dark"] .asset-inline-controls select,
+.app-shell[data-theme="dark"] .library-advanced select,
+.app-shell[data-theme="dark"] .caption-style-grid select,
+.app-shell[data-theme="dark"] .caption-style-grid input[type="color"],
+.app-shell[data-theme="dark"] .caption-size-control input[type="number"],
+.app-shell[data-theme="dark"] .caption-coordinate-controls input,
+.app-shell[data-theme="dark"] .caption-segment-list textarea {
+  color: var(--rii-text);
+  border-color: var(--rii-line-strong);
+  background: #11151d;
+}
+
+.app-shell[data-theme="dark"] select option {
+  color: var(--rii-text);
+  background: #11151d;
+}
+
+.app-shell[data-theme="dark"] input::placeholder,
+.app-shell[data-theme="dark"] textarea::placeholder {
+  color: #7f8796;
+}
+
+.app-shell[data-theme="dark"] .project-picker > button,
+.app-shell[data-theme="dark"] .workspace-destination > button,
+.app-shell[data-theme="dark"] .scene-reset-layout,
+.app-shell[data-theme="dark"] .take-actions button,
+.app-shell[data-theme="dark"] .take-actions a,
+.app-shell[data-theme="dark"] .take-trim-actions button,
+.app-shell[data-theme="dark"] .clear-workspace-modal button,
+.app-shell[data-theme="dark"] .scene-builder button,
+.app-shell[data-theme="dark"] .finish-take-modal button,
+.app-shell[data-theme="dark"] .finish-take-modal a {
+  color: var(--rii-text);
+  border-color: var(--rii-line-strong);
+  background: var(--rii-panel-raised);
+}
+
+.app-shell[data-theme="dark"] .project-picker .clear-workspace-button {
+  color: #ff9a94;
+  border-color: #613c40;
+  background: #291c22;
+}
+
+.app-shell[data-theme="dark"] .panel-title > b,
+.app-shell[data-theme="dark"] .section-label > b,
+.app-shell[data-theme="dark"] .takes-inline-heading > b {
+  color: #c8cfda;
+  border-color: var(--rii-line);
+  background: var(--rii-panel-soft);
+}
+
+.app-shell[data-theme="dark"] .asset-icon,
+.app-shell[data-theme="dark"] .asset-preview-button,
+.app-shell[data-theme="dark"] .scene-preview,
+.app-shell[data-theme="dark"] .scene-member-strip button {
+  color: var(--rii-accent-strong);
+  border-color: var(--rii-line-strong);
+  background: #0f131b;
+}
+
+.app-shell[data-theme="dark"] .stage-area {
+  background: #090c11;
+}
+
+.app-shell[data-theme="dark"] .stage-wrap {
+  border-color: #353d4b;
+  background: #050609;
+  box-shadow: 0 14px 40px rgba(0, 0, 0, .3);
+}
+
+.app-shell[data-theme="dark"] .stage-empty {
+  color: var(--rii-text);
+  background: #10151e;
+}
+
+.app-shell[data-theme="dark"] .stage-empty > span {
+  color: var(--rii-accent-strong);
+  border-color: #465b9d;
+  background: var(--rii-accent-soft);
+}
+
+.app-shell[data-theme="dark"] .stage-empty small,
+.app-shell[data-theme="dark"] .console-state span,
+.app-shell[data-theme="dark"] .recording-clock small {
+  color: var(--rii-muted);
+}
+
+.app-shell[data-theme="dark"] .audio-console {
+  border-color: var(--rii-line);
+  background: var(--rii-panel-soft);
+}
+
+.app-shell[data-theme="dark"] .transport-actions .stop-button,
+.app-shell[data-theme="dark"] .transport-actions .stop-button:last-child,
+.app-shell[data-theme="dark"] .transport-actions .stop-button:disabled {
+  color: #98a0ae;
+  border-color: var(--rii-line-strong);
+  background: var(--rii-panel-soft);
+}
+
+.app-shell[data-theme="dark"] .transport-actions .stop-button.studio-stop:not(:disabled) {
+  color: var(--rii-text);
+  border-color: #596273;
+  background: var(--rii-panel-raised);
+}
+
+.app-shell[data-theme="dark"] .preflight-checks b {
+  color: var(--rii-text);
+}
+
+.app-shell[data-theme="dark"] .preflight-checks {
+  border-color: var(--rii-line);
+  background: var(--rii-panel-soft);
+}
+
+.app-shell[data-theme="dark"] .preflight-checks > span {
+  border-color: var(--rii-line);
+}
+
+.app-shell[data-theme="dark"] .preflight-checks small {
+  color: var(--rii-muted);
+}
+
+.app-shell[data-theme="dark"] .signal-format,
+.app-shell[data-theme="dark"] .takes-inline-heading,
+.app-shell[data-theme="dark"] .recording-item {
+  border-color: var(--rii-line);
+  background: var(--rii-panel-raised);
+}
+
+.app-shell[data-theme="dark"] .clear-workspace-modal > section,
+.app-shell[data-theme="dark"] .scene-builder,
+.app-shell[data-theme="dark"] .finish-take-modal > section {
+  color: var(--rii-text);
+  border-color: var(--rii-line-strong);
+  background: var(--rii-panel);
+  box-shadow: 0 30px 90px rgba(0, 0, 0, .55);
+}
+
+.app-shell[data-theme="dark"] .clear-workspace-modal header,
+.app-shell[data-theme="dark"] .clear-workspace-modal footer,
+.app-shell[data-theme="dark"] .scene-builder-heading,
+.app-shell[data-theme="dark"] .scene-builder-footer,
+.app-shell[data-theme="dark"] .finish-take-modal header,
+.app-shell[data-theme="dark"] .finish-take-modal footer {
+  border-color: var(--rii-line);
+  background: var(--rii-panel);
+}
+
+.app-shell[data-theme="dark"] .clear-workspace-modal header strong,
+.app-shell[data-theme="dark"] .clear-workspace-body p,
+.app-shell[data-theme="dark"] .clear-workspace-body li strong,
+.app-shell[data-theme="dark"] .scene-builder-heading strong,
+.app-shell[data-theme="dark"] .scene-builder-config > label > span,
+.app-shell[data-theme="dark"] .scene-builder-label,
+.app-shell[data-theme="dark"] .finish-take-modal header strong,
+.app-shell[data-theme="dark"] .caption-preview-heading strong,
+.app-shell[data-theme="dark"] .caption-enable-row strong,
+.app-shell[data-theme="dark"] .caption-progress strong,
+.app-shell[data-theme="dark"] .caption-ready strong {
+  color: var(--rii-text);
+}
+
+.app-shell[data-theme="dark"] .scene-builder-intro,
+.app-shell[data-theme="dark"] .finish-preview-column {
+  color: var(--rii-muted);
+  border-color: var(--rii-line);
+  background: var(--rii-bg);
+}
+
+.app-shell[data-theme="dark"] .scene-builder-config {
+  border-color: var(--rii-line);
+}
+
+.app-shell[data-theme="dark"] .scene-template-grid button,
+.app-shell[data-theme="dark"] .scene-member-picker button,
+.app-shell[data-theme="dark"] .scene-requirement,
+.app-shell[data-theme="dark"] .caption-enable-row,
+.app-shell[data-theme="dark"] .caption-progress,
+.app-shell[data-theme="dark"] .caption-ready,
+.app-shell[data-theme="dark"] .caption-segment-list label.active,
+.app-shell[data-theme="dark"] .take-trim-panel.active {
+  color: var(--rii-text);
+  border-color: var(--rii-line-strong);
+  background: var(--rii-panel-raised);
+}
+
+.app-shell[data-theme="dark"] .caption-editor-column,
+.app-shell[data-theme="dark"] .caption-position-hint,
+.app-shell[data-theme="dark"] .finish-take-modal footer small,
+.app-shell[data-theme="dark"] .scene-builder-intro,
+.app-shell[data-theme="dark"] .scene-builder-footer > small,
+.app-shell[data-theme="dark"] .caption-preview-heading small,
+.app-shell[data-theme="dark"] .caption-style-grid label > span,
+.app-shell[data-theme="dark"] .caption-coordinate-controls > span,
+.app-shell[data-theme="dark"] .caption-coordinate-controls label b,
+.app-shell[data-theme="dark"] .caption-coordinate-controls label em {
+  color: var(--rii-muted);
+}
+
+@media (max-width: 900px) {
+  .app-shell[data-theme="dark"] .signal-rail {
+    border-color: var(--rii-line);
+  }
+}
+
+/* Decluttered one-session workspace. */
+.recording-destination-bar {
+  margin: 0 0 20px;
+}
+
+.recording-destination-bar .workspace-destination {
+  width: 100%;
+}
+
+.grouped-assets-note {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0;
+  padding: 10px 2px;
+  color: var(--rii-muted);
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.grouped-assets-note svg {
+  flex: 0 0 auto;
+  color: var(--rii-accent);
+}
+
+.app-shell[data-theme="dark"] .scene-section {
+  border-color: var(--rii-line);
+  background: var(--rii-panel-soft);
+}
+
+.app-shell[data-theme="dark"] .scene-section-heading strong,
+.app-shell[data-theme="dark"] .scene-name-input {
+  color: var(--rii-text);
+}
+
+.app-shell[data-theme="dark"] .scene-section-heading small,
+.app-shell[data-theme="dark"] .scene-section-heading > b {
+  color: var(--rii-muted);
+}
+
+.app-shell[data-theme="dark"] .scene-section-heading > b,
+.app-shell[data-theme="dark"] .scene-section-icon {
+  border-color: var(--rii-line-strong);
+  background: var(--rii-panel-raised);
+}
+
+.app-shell[data-theme="dark"] .scene-section-icon {
+  color: var(--rii-accent-strong);
+}
+
+.app-shell[data-theme="dark"] .scene-item {
+  border-color: var(--rii-line-strong);
+  background: var(--rii-panel-raised);
+}
+
+.app-shell[data-theme="dark"] .scene-reset-layout,
+.app-shell[data-theme="dark"] .scene-reset-layout:disabled {
+  border-color: var(--rii-line);
+  color: #aeb5c1;
+  background: var(--rii-panel-soft);
+  opacity: 1;
+}
+
+/* Unselected controls remain readable instead of inheriting legacy light text. */
+.app-shell[data-theme="dark"] .scene-template-grid > button,
+.app-shell[data-theme="dark"] .scene-member-picker > button,
+.app-shell[data-theme="dark"] .camera-frame-mode-grid button,
+.app-shell[data-theme="dark"] .crop-controls fieldset button,
+.app-shell[data-theme="dark"] .data-mode button,
+.app-shell[data-theme="dark"] .video-audio-control button,
+.app-shell[data-theme="dark"] .media-editor-actions > button,
+.app-shell[data-theme="dark"] .take-trim-actions button {
+  border-color: var(--rii-line-strong);
+  color: var(--rii-text);
+  background: var(--rii-panel-raised);
+}
+
+.app-shell[data-theme="dark"] .scene-template-grid button strong,
+.app-shell[data-theme="dark"] .scene-member-picker button > span strong,
+.app-shell[data-theme="dark"] .scene-assets-heading strong,
+.app-shell[data-theme="dark"] .crop-direct-help strong,
+.app-shell[data-theme="dark"] .trim-preview-status strong,
+.app-shell[data-theme="dark"] .trim-timeline-readout strong,
+.app-shell[data-theme="dark"] .media-editor-modal header strong {
+  color: var(--rii-text);
+}
+
+.app-shell[data-theme="dark"] .scene-template-grid button small,
+.app-shell[data-theme="dark"] .scene-member-picker button > span small,
+.app-shell[data-theme="dark"] .scene-assets-heading small,
+.app-shell[data-theme="dark"] .crop-direct-help small,
+.app-shell[data-theme="dark"] .trim-preview-status span,
+.app-shell[data-theme="dark"] .trim-timeline-readout small,
+.app-shell[data-theme="dark"] .trim-timeline-hint,
+.app-shell[data-theme="dark"] .media-editor-modal header small,
+.app-shell[data-theme="dark"] .media-editor-modal footer small,
+.app-shell[data-theme="dark"] .crop-controls legend,
+.app-shell[data-theme="dark"] .image-crop-editor > p {
+  color: var(--rii-muted);
+}
+
+.app-shell[data-theme="dark"] .scene-template-grid > button.active,
+.app-shell[data-theme="dark"] .scene-member-picker > button.selected,
+.app-shell[data-theme="dark"] .camera-frame-mode-grid button.active,
+.app-shell[data-theme="dark"] .crop-controls fieldset button.active,
+.app-shell[data-theme="dark"] .data-mode button.active,
+.app-shell[data-theme="dark"] .video-audio-control button.active {
+  border-color: var(--rii-accent);
+  color: #dfe6ff;
+  background: var(--rii-accent-soft);
+  box-shadow: inset 0 0 0 1px var(--rii-accent);
+}
+
+.app-shell[data-theme="dark"] .template-mini,
+.app-shell[data-theme="dark"] .scene-member-picker button > i {
+  background: #111620;
+}
+
+.app-shell[data-theme="dark"] .template-mini b {
+  background: #6d7788;
+}
+
+.app-shell[data-theme="dark"] .camera-frame-modal > section,
+.app-shell[data-theme="dark"] .media-editor-modal > section,
+.app-shell[data-theme="dark"] .take-preview-modal > section {
+  color: var(--rii-text);
+  border-color: var(--rii-line-strong);
+  background: var(--rii-panel);
+  box-shadow: 0 30px 90px rgba(0, 0, 0, .55);
+}
+
+.app-shell[data-theme="dark"] .camera-frame-modal header,
+.app-shell[data-theme="dark"] .camera-frame-modal footer,
+.app-shell[data-theme="dark"] .media-editor-modal header,
+.app-shell[data-theme="dark"] .media-editor-modal footer,
+.app-shell[data-theme="dark"] .take-preview-modal header,
+.app-shell[data-theme="dark"] .take-preview-modal footer {
+  border-color: var(--rii-line);
+  background: var(--rii-panel);
+}
+
+.app-shell[data-theme="dark"] .trim-timeline,
+.app-shell[data-theme="dark"] .trim-timeline-readout span,
+.app-shell[data-theme="dark"] .crop-direct-help,
+.app-shell[data-theme="dark"] .crop-direct-help.original {
+  color: var(--rii-text);
+  border-color: var(--rii-line);
+  background: var(--rii-panel-soft);
+}
+
+.app-shell[data-theme="dark"] .scene-template-grid button:disabled,
+.app-shell[data-theme="dark"] .scene-member-picker button:disabled,
+.app-shell[data-theme="dark"] .camera-frame-mode-grid button:disabled,
+.app-shell[data-theme="dark"] .crop-controls fieldset button:disabled,
+.app-shell[data-theme="dark"] .data-mode button:disabled,
+.app-shell[data-theme="dark"] .video-audio-control button:disabled,
+.app-shell[data-theme="dark"] .media-editor-actions > button:disabled,
+.app-shell[data-theme="dark"] .take-trim-actions button:disabled,
+.app-shell[data-theme="dark"] select:disabled,
+.app-shell[data-theme="dark"] input:disabled {
+  color: #929aa9;
+  border-color: #343b49;
+  background-color: #191e28;
+  opacity: .72;
+}
+
+.studio-console {
+  grid-template-columns: minmax(100px, 1fr) auto minmax(100px, 1fr);
+  align-items: center;
+}
+
+.studio-console .audio-console {
+  grid-column: 1;
+  justify-self: start;
+  width: min(132px, 100%);
+  grid-template-columns: 25px minmax(64px, 1fr);
+}
+
+.studio-console .transport-actions {
+  grid-column: 2;
+  justify-self: center;
+}
+
+.studio-console .recording-clock {
+  grid-column: 3;
+  justify-self: end;
+}
+
+.signal-rail > .takes-inline-panel {
+  min-height: 0;
+  flex: 1 1 auto;
+}
+
+@media (max-width: 560px) {
+  .studio-console {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 9px;
+  }
+
+  .studio-console .audio-console {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .studio-console .recording-clock {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .studio-console .transport-actions {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+}
+.take-rename {
+  grid-template-columns: minmax(0, 1fr) 34px;
+  gap: 6px;
+}
+
+.take-rename button {
+  width: 34px;
+  min-height: 31px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid #2563eb;
+  border-radius: 6px;
+  color: #ffffff;
+  background: #2563eb;
+}
+
+.take-rename button svg {
+  width: 17px;
+  height: 17px;
+  stroke-width: 3;
+}
+
+.take-rename button:hover:not(:disabled) {
+  border-color: #1d4ed8;
+  color: #ffffff;
+  background: #1d4ed8;
+}
+
+.take-rename button:disabled {
+  border-color: #c9c5bc;
+  color: #7c776f;
+  background: #ece9e3;
+  opacity: 1;
+}
+
+.app-shell[data-theme="dark"] .take-rename button {
+  border-color: #5375f4;
+  color: #ffffff;
+  background: #4f6fe7;
+}
+
+.app-shell[data-theme="dark"] .take-rename button:hover:not(:disabled) {
+  border-color: #6f8cff;
+  color: #ffffff;
+  background: #5d7bf0;
+}
+
+.app-shell[data-theme="dark"] .take-rename button:disabled {
+  border-color: #4a5261;
+  color: #aeb6c3;
+  background: #252b36;
+  opacity: 1;
+}
+
+/* Native display capture stays separate from the camera/quality controls so
+ * the stage remains readable at narrow creator-workspace widths. */
+.center-panel {
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+}
+
+.camera-source,
+.screen-source,
+.inference-canvas {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.screen-share-bar {
+  min-width: 0;
+  min-height: 58px;
+  display: grid;
+  grid-template-columns: minmax(210px, 1fr) auto auto;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-bottom: 1px solid #d9d4ca;
+  background: #f8f5ef;
+}
+
+.screen-share-bar.ready {
+  box-shadow: inset 3px 0 #2f8f67;
+}
+
+.screen-share-copy {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  align-items: center;
+  gap: 9px;
+}
+
+.screen-share-copy > span:last-child {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.screen-share-icon {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border: 1px solid #c9d6f5;
+  border-radius: 8px;
+  color: #2563eb;
+  background: #edf3ff;
+}
+
+.screen-share-bar.ready .screen-share-icon {
+  border-color: #b7d6c6;
+  color: #287655;
+  background: #eef8f2;
+}
+
+.screen-share-copy strong,
+.screen-share-copy small,
+.screen-share-copy em {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.screen-share-copy strong {
+  color: #25221e;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.screen-share-copy small {
+  color: #6f6a62;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.screen-share-copy em {
+  color: #946020;
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 750;
+}
+
+.screen-overlay-controls {
+  display: grid;
+  grid-template-columns: minmax(120px, 1fr) minmax(100px, .8fr) 38px minmax(82px, auto) 38px;
+  align-items: end;
+  gap: 6px;
+  padding: 5px;
+  border: 1px solid #d3cec4;
+  border-radius: 9px;
+  background: #ece8e0;
+}
+
+.screen-overlay-controls label {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.screen-overlay-controls label > span {
+  color: #6f6a62;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
+.screen-overlay-controls select,
+.screen-overlay-controls button {
+  min-width: 0;
+  min-height: 34px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.screen-overlay-controls select {
+  width: 100%;
+  padding: 0 24px 0 7px;
+  border: 1px solid #d3cec4;
+  color: #312e29;
+  background: #ffffff;
+}
+
+.screen-overlay-controls button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 0 8px;
+  border: 1px solid transparent;
+  color: #5e5952;
+  background: transparent;
+  white-space: nowrap;
+}
+
+.screen-overlay-controls button.active,
+.screen-overlay-controls button:hover:not(:disabled) {
+  color: #1d4ed8;
+  background: #ffffff;
+  box-shadow: 0 1px 4px rgba(40, 34, 25, .1);
+}
+
+.screen-share-actions {
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+}
+
+.screen-share-actions button {
+  min-height: 36px;
+  border-radius: 7px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.screen-share-start {
+  min-width: 104px;
+  border-color: #2563eb;
+  color: #ffffff;
+  background: #2563eb;
+}
+
+.screen-share-start:hover:not(:disabled) {
+  border-color: #1d4ed8;
+  color: #ffffff;
+  background: #1d4ed8;
+}
+
+.screen-share-stop {
+  width: 38px;
+  padding: 0;
+  color: #7b3037;
+  border-color: #d7b8bb;
+  background: #fff6f6;
+}
+
+.app-shell[data-theme="dark"] .screen-share-bar {
+  border-color: var(--rii-line);
+  background: #151a23;
+}
+
+.app-shell[data-theme="dark"] .screen-share-copy strong {
+  color: var(--rii-text);
+}
+
+.app-shell[data-theme="dark"] .screen-share-copy small {
+  color: #aeb6c3;
+}
+
+.app-shell[data-theme="dark"] .screen-share-copy em {
+  color: #e6ad67;
+}
+
+.app-shell[data-theme="dark"] .screen-share-icon {
+  border-color: #344774;
+  color: #8da7ff;
+  background: #1d2945;
+}
+
+.app-shell[data-theme="dark"] .screen-share-bar.ready .screen-share-icon {
+  border-color: #315c49;
+  color: #71d4a6;
+  background: #173127;
+}
+
+.app-shell[data-theme="dark"] .screen-overlay-controls {
+  border-color: #394251;
+  background: #0f131a;
+}
+
+.app-shell[data-theme="dark"] .screen-overlay-controls label > span {
+  color: #929cab;
+}
+
+.app-shell[data-theme="dark"] .screen-overlay-controls select {
+  color: var(--rii-text);
+  border-color: #394251;
+  background: #191f2a;
+}
+
+.app-shell[data-theme="dark"] .screen-overlay-controls button {
+  color: #aeb6c3;
+  background: transparent;
+}
+
+.app-shell[data-theme="dark"] .screen-overlay-controls button.active,
+.app-shell[data-theme="dark"] .screen-overlay-controls button:hover:not(:disabled) {
+  color: #dce5ff;
+  background: #263655;
+  box-shadow: none;
+}
+
+.app-shell[data-theme="dark"] .screen-share-start {
+  border-color: #5375f4;
+  color: #ffffff;
+  background: #4f6fe7;
+}
+
+.app-shell[data-theme="dark"] .screen-share-start:hover:not(:disabled) {
+  border-color: #6f8cff;
+  color: #ffffff;
+  background: #5d7bf0;
+}
+
+.app-shell[data-theme="dark"] .screen-share-stop {
+  color: #ffb6bb;
+  border-color: #6b3d43;
+  background: #351e23;
+}
+
+@media (max-width: 1380px) {
+  .screen-share-bar {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .screen-overlay-controls {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+}
+
+@media (max-width: 640px) {
+  .screen-share-bar {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px;
+    padding: 8px;
+  }
+
+  .screen-share-copy small {
+    white-space: normal;
+    line-height: 1.25;
+  }
+
+  .screen-overlay-controls {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+
+  .screen-overlay-controls label { grid-column: span 3; }
+  .screen-overlay-controls button { grid-column: span 2; }
+
+  .screen-overlay-controls button {
+    min-width: 0;
+    padding: 0 5px;
+  }
+
+  .screen-share-start {
+    min-width: 90px;
+  }
+}

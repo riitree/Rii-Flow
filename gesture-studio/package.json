@@ -1,0 +1,33 @@
+{
+  "name": "gesture-studio",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "preview": "vite preview",
+    "typecheck": "tsc -b --pretty false",
+    "test": "vitest run",
+    "build": "tsc -b && vite build",
+    "check": "npm run typecheck && npm run test && npm run build",
+    "captions:model": "node scripts/download-caption-model.mjs",
+    "postinstall": "node scripts/copy-mediapipe-runtime.mjs"
+  },
+  "dependencies": {
+    "@fontsource-variable/manrope": "^5.2.8",
+    "@huggingface/transformers": "^4.2.0",
+    "@mediapipe/tasks-vision": "latest",
+    "lucide-react": "latest",
+    "react": "latest",
+    "react-dom": "latest"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.1",
+    "@types/react": "latest",
+    "@types/react-dom": "latest",
+    "@vitejs/plugin-react": "latest",
+    "typescript": "latest",
+    "vite": "latest",
+    "vitest": "latest"
+  }
+}
