@@ -1,5 +1,7 @@
 import {
   AlertTriangle,
+  ArrowDown,
+  ArrowUp,
   Archive,
   BarChart3,
   Camera,
@@ -29,21 +31,22 @@ import {
   Music2,
   Monitor,
   Moon,
+  MousePointer2,
   Move,
   Pencil,
   Play,
   Plus,
   Radio,
+  Repeat2,
   RotateCcw,
   Scissors,
-  ScreenShare,
-  ScreenShareOff,
   Settings2,
   ShieldCheck,
   Sparkles,
   Square,
   Sun,
   Trash2,
+  Type,
   Upload,
   Video,
   Volume2,
@@ -57,12 +60,13 @@ import {
   useRef,
   useState,
   type ChangeEvent,
+  type CSSProperties,
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent
 } from "react";
 import { ImageCropEditor } from "./components/ImageCropEditor";
 import { TrimTimeline } from "./components/TrimTimeline";
-import { applyAssetTransform, baseAssetRect, composeFrame, constrainAssetTransform, sceneBaseRect, sceneDisplayRect, sceneMemberCanvasTransform, sceneMemberContentRects, sceneMemberDisplayRects, sceneMemberDrawOrder, sceneMemberRelativeTransform, snapScaleToTemplate, snapTransformToCameraBorder, snappedAssetSize, stageBackdropForLayers, type CameraSnapTarget, type Rect } from "./core/compositor";
+import { applyAssetTransform, baseAssetRect, composeFrame, constrainAssetTransform, reflowAssetPanelRect, sceneBaseRect, sceneDisplayRect, sceneFocusedMemberRect, sceneMemberCanvasTransform, sceneMemberContentRects, sceneMemberDisplayRects, sceneMemberDrawOrder, sceneMemberRelativeTransform, stageBackdropForLayers, type Rect } from "./core/compositor";
 import { CANVAS_ASPECTS, canvasDimensions, type CanvasAspectId } from "./core/aspect";
 import {
   closeStudioAudioMixer,
@@ -79,15 +83,27 @@ import {
   type StudioAudioMixer
 } from "./core/audio";
 import { startCaptionCapture, type CaptionAudio, type CaptionCaptureSession } from "./core/captionCapture";
-import { transcribeEnglish, type CaptionProgress } from "./core/captionClient";
+import { transcribeEnglish, transcribeTriggerEnglish, warmEnglishTranscriber, type CaptionProgress } from "./core/captionClient";
 import { editedFileName, renderCaptionedTake } from "./core/captionRender";
 import { activeCaptionAt, CAPTION_FONTS, captionAnchorFromPoint, captionFontFamily, captionPresetAnchor, DEFAULT_CAPTION_STYLE, drawCaption, normalizeCaptionStyle, type CaptionSegment, type CaptionStyle } from "./core/captions";
+import { activeWordAnimationAt, buildWordAnimationCues, VoiceEmphasisTracker, type VoiceEmphasisMarker, type WordAnimationCue } from "./core/wordCues";
+import { normalizeTriggerWord, suggestAssetTrigger, suggestSceneTrigger, triggerTargets, type VoiceTriggerTarget } from "./core/voiceTriggers";
+import { normalizeConceptAliases, reconcileConcepts, type StudioConcept } from "./core/concepts";
+import { IntentEngine, type IntentCandidate } from "./core/intentEngine";
+import { StudioEventBus } from "./core/studioEvents";
+import { SwipeTracker } from "./core/swipe";
+import { MAX_OPERATOR_SHELF_ITEMS, operatorShelfRects, operatorShelfTargetAt, PalmCommandTracker, type OperatorShelfItem } from "./core/operatorControls";
 import { cameraFrameColor, cameraFrameViewport, DEFAULT_CAMERA_FRAME, MAX_CAMERA_FRAME_PERCENT, MIN_CAMERA_FRAME_PERCENT, normalizeCameraFrame, type CameraFrameMode, type CameraFrameSettings } from "./core/cameraFrame";
+import { ASSET_DECK_MODES, type AssetDeckMode } from "./core/assetDeck";
+import { CameraReflowController, applyCameraReflow, cameraReflowPanelRatioForSide, cameraReflowTarget, visibleLayersForComposition, type CameraReflowFrame } from "./core/cameraReflow";
 import { parseCsv, parseJson } from "./core/data";
 import { GestureGate, GestureStabilizer, MIN_GESTURE_HOLD_MS, resolveCompositeGesture, resolveGesture, type Landmark } from "./core/gesture";
 import { createGestureInferenceClient, type GestureFrameResult, type GestureInferenceClient, type InferenceCategory } from "./core/gestureInference";
-import { activateLayer, hideFocusedLayer, removeLayer } from "./core/layers";
-import { ManipulationTracker, mapControlPointForMirror, mapPointForMovementReach, palmControlPoint, PalmSignalTracker, type ManipulationMode, type ManipulationUpdate, type PalmObservation } from "./core/manipulation";
+import { gestureCueAtCursor, gestureSequenceLayerIds, normalizeGestureSequences, reorderGestureCue } from "./core/gestureSequences";
+import { preferredCompositionDriver, replaceLatestFrame, videoFrameProcessor, type CompositionDriver } from "./core/framePipeline";
+import { activateLayer, hideFocusedLayer, removeLayer, topmostStageHit, topmostStageHitForPoints, type StageHitCandidate } from "./core/layers";
+import { enforceLiveBudget, MAX_LIVE_MOVING_SOURCES, MAX_LIVE_VISUALS } from "./core/liveBudget";
+import { ManipulationTracker, mapControlPointForMirror, mapControlPointToStageViewport, mapPointForMovementReach, palmControlPoint, PalmSignalTracker, type ManipulationMode, type ManipulationUpdate, type PalmObservation } from "./core/manipulation";
 import { fitImageCropToAspect, hasVideoTrim, normalizeImageCrop, normalizeVideoTrim } from "./core/mediaEdits";
 import {
   createBrowserMediaProvider,
@@ -106,8 +122,19 @@ import {
   type QualityPreset
 } from "./core/quality";
 import { compositionFrameBudget, compositionHealth, normalizedCompositionFps, shouldComposeFrame, type CompositionHealth } from "./core/performance";
+import { PointFocusTracker } from "./core/pointFocus";
+import { CircleMorphTracker, drawAssetMorphExit, type AssetMorphExit } from "./core/assetMorph";
+import { drawStageSpotlight } from "./core/spotlight";
+import { DeckScrollController } from "./core/deckScroll";
+import { drawCanvasWidgets, drawLiveSticker, liveStickerRect, orbitTargetAtPoint, pointNearOrbit, widgetAtPoint, type CanvasWidget, type CanvasWidgetKind, type WidgetFrameStyle } from "./core/widgets";
+import { compositionImageSize } from "./core/imageOptimization";
+import { adjacentDirectorCueIndex, buildDirectorQueue, directorCueIndex } from "./core/directorQueue";
+import { appendDirectorEvent, closeOpenDirectorEvents, nudgeDirectorEvent, removeDirectorEvent, type DirectorTrackEvent } from "./core/directorTrack";
 import { composedStream, masterRecorderOptions, recordingMimeType } from "./core/recording";
-import { findGestureLayer, gestureOwner, layerAssetIds, layerName, removeAssetFromScenes, resolveLayer, sceneLayerId } from "./core/scenes";
+import { constrainedSceneMemberIds, layerAssetIds, layerName, MAX_SCENE_ASSETS, MAX_SCENE_VIDEO_ASSETS, removeAssetFromScenes, resolveLayer, sceneLayerId, sceneMemberAtPalmCenter, sceneMemberLimitError } from "./core/scenes";
+import { applyPresetToAssets, applyPresetToScenes, STUDIO_PRESETS, type StudioPresetId } from "./core/studioPresets";
+import { normalizeVideoPlaybackMode, videoBoundaryAction } from "./core/videoPlayback";
+import { assetsForMainDock, initialStyleTransform, MAX_STYLE_ASSETS, VIDEO_STYLES, pointNearStyleDeck, styleAssetAtPoint, styleAssetsWithFocus, styleFocusBaseRect, styleTransformBounds, videoStyleLayout, type VideoStyleId } from "./core/videoStyles";
 import { mergeTakeLibrary, takesForProject } from "./core/takeLibrary";
 import {
   createBlankProject,
@@ -139,12 +166,16 @@ import {
   type StageBackground,
   type AssetSize,
   type CameraOption,
+  type CameraReflow,
   type CueSound,
   type EntranceAnimation,
   type GestureId,
+  type GestureSequenceMap,
+  type GestureSequenceMode,
   type GrantedVideoSettings,
   type ImageCropAspect,
   type MicrophoneOption,
+  type MotionEffect,
   type Placement,
   type RecognizedGesture,
   type ScreenCaptureSettings,
@@ -152,7 +183,11 @@ import {
   type StudioAsset,
   type StudioLayer,
   type StudioScene,
-  type SceneLayout
+  type VideoPlaybackMode,
+  type SceneLayout,
+  type SceneMemberFocusMode,
+  type SceneRevealMotion,
+  type SceneRevealSide
 } from "./types";
 
 type StudioPhase = "idle" | "permission" | "loading" | "switching" | "stopping" | "ready" | "error";
@@ -166,6 +201,29 @@ interface RecordedClip extends StoredTake {
   availability: "ready" | "permission" | "missing" | "session";
 }
 
+interface PointFocusState {
+  x: number;
+  y: number;
+  progress: number;
+  targetName?: string;
+}
+
+interface ArmedVoiceTarget extends VoiceTriggerTarget {
+  heardText: string;
+  source: "voice" | "shelf";
+  armedAt: number;
+  expiresAt: number;
+}
+
+interface SpotlightState {
+  layerId: string;
+  sceneMemberId?: string;
+  name: string;
+  progress: number;
+}
+
+type VisualTimelineEvent = DirectorTrackEvent;
+
 interface PointerEditSession {
   pointerId: number;
   mode: "drag" | "scale";
@@ -174,6 +232,7 @@ interface PointerEditSession {
   stageWidth: number;
   stageHeight: number;
   base: Rect;
+  bounds?: Rect;
   initial: { x: number; y: number; scale: number };
   layerId: string;
   sceneMemberId?: string;
@@ -196,6 +255,16 @@ type DisplayMediaRequestOptions = DisplayMediaStreamOptions & {
   surfaceSwitching?: "include" | "exclude";
   systemAudio?: "include" | "exclude";
 };
+
+type CaptureHandleMediaDevices = MediaDevices & {
+  setCaptureHandleConfig?: (config: { exposeOrigin: boolean; handle: string; permittedOrigins: string[] }) => void;
+};
+
+type CaptureHandleTrack = MediaStreamTrack & {
+  getCaptureHandle?: () => { handle?: string; origin?: string } | null;
+};
+
+const RII_FLOW_CAPTURE_HANDLE = "rii-flow-recording-canvas-v1";
 
 async function directoryPermission(handle: FileSystemDirectoryHandle, request = false) {
   const permissionHandle = handle as DirectoryPermissionHandle;
@@ -248,24 +317,67 @@ const ENTRANCE_ANIMATIONS: { id: EntranceAnimation; label: string }[] = [
   { id: "pop", label: "Pop" },
   { id: "slide", label: "Slide up" },
   { id: "bounce", label: "Bounce" },
-  { id: "float", label: "Float" }
+  { id: "float", label: "Float in" },
+  { id: "slide-left", label: "Sweep from left" },
+  { id: "slide-right", label: "Sweep from right" },
+  { id: "zoom", label: "Zoom in" },
+  { id: "drop", label: "Drop in" }
+];
+
+const MOTION_EFFECTS: { id: MotionEffect; label: string }[] = [
+  { id: "none", label: "Stay still" },
+  { id: "float", label: "Gentle float" },
+  { id: "pulse", label: "Soft pulse" },
+  { id: "sway", label: "Side sway" },
+  { id: "drift", label: "Slow drift" }
 ];
 
 const CUE_SOUNDS: { id: CueSound; label: string }[] = [
   { id: "none", label: "No sound" },
-  { id: "soft", label: "Soft tone" },
-  { id: "pop", label: "Quick pop" },
-  { id: "chime", label: "Chime" },
+  { id: "whoosh", label: "Whoosh" },
+  { id: "shutter", label: "Camera shutter" },
+  { id: "film", label: "Film roll" },
   { id: "bottle", label: "Pop out" },
-  { id: "enter", label: "Click" }
+  { id: "chime", label: "Chime" },
+];
+
+type SpawnStyleId = "clean" | "quiet-glide" | "quiet-pop" | "glide" | "pop" | "bounce" | "sweep-left" | "sweep-right" | "zoom" | "drop";
+const SPAWN_STYLES: readonly { id: SpawnStyleId; label: string; animation: EntranceAnimation; sound: CueSound }[] = [
+  { id: "clean", label: "Clean · silent fade", animation: "fade", sound: "none" },
+  { id: "quiet-glide", label: "Quiet glide", animation: "slide", sound: "none" },
+  { id: "quiet-pop", label: "Quiet pop", animation: "pop", sound: "none" },
+  { id: "glide", label: "Glide · whoosh", animation: "slide", sound: "whoosh" },
+  { id: "pop", label: "Pop · pop sound", animation: "pop", sound: "bottle" },
+  { id: "bounce", label: "Bounce · chime", animation: "bounce", sound: "chime" },
+  { id: "sweep-left", label: "Sweep left · whoosh", animation: "slide-left", sound: "whoosh" },
+  { id: "sweep-right", label: "Sweep right · whoosh", animation: "slide-right", sound: "whoosh" },
+  { id: "zoom", label: "Zoom · shutter", animation: "zoom", sound: "shutter" },
+  { id: "drop", label: "Drop · film roll", animation: "drop", sound: "film" }
+];
+
+function spawnStyleFor(animation?: EntranceAnimation, sound?: CueSound): SpawnStyleId | "custom" {
+  return SPAWN_STYLES.find((style) => style.animation === (animation ?? "fade") && style.sound === (sound ?? "none"))?.id ?? "custom";
+}
+
+const ACTIVATION_GESTURES = GESTURES.filter((gesture) => gesture.id !== "one");
+const SCENE_MEMBER_FOCUS_MODES: { id: SceneMemberFocusMode; label: string }[] = [
+  { id: "off", label: "No focus" },
+  { id: "medium", label: "Focus medium" },
+  { id: "full", label: "Focus full" }
 ];
 
 const SCENE_TEMPLATES: { id: SceneLayout; label: string; detail: string }[] = [
-  { id: "grid", label: "Balanced grid", detail: "Equal collage tiles" },
-  { id: "row", label: "Horizontal split", detail: "Side-by-side panels" },
-  { id: "column", label: "Vertical strip", detail: "Stacked panels" },
-  { id: "spotlight", label: "Hero + rail", detail: "One lead visual with supporting tiles" },
-  { id: "cascade", label: "Layered cards", detail: "Overlapping editorial collage" }
+  { id: "grid", label: "Story grid", detail: "Everything gets an equal box" },
+  { id: "row", label: "Side by side", detail: "Pictures sit next to each other" },
+  { id: "column", label: "Top to bottom", detail: "Pictures stack in one line" },
+  { id: "spotlight", label: "Big + small", detail: "One big picture with helpers" },
+  { id: "cascade", label: "Gallery", detail: "Pictures overlap like cards" }
+];
+
+const SCENE_REVEAL_MOTIONS: { id: SceneRevealMotion; label: string }[] = [
+  { id: "smooth", label: "Smooth slide" },
+  { id: "soft", label: "Soft slide" },
+  { id: "bounce", label: "Bounce slide" }
 ];
 
 function normalizeStageBackground(value: unknown): StageBackground {
@@ -273,10 +385,32 @@ function normalizeStageBackground(value: unknown): StageBackground {
   return "camera";
 }
 
-const DEFAULT_TIMING = { holdMs: 350, cooldownMs: 700, rearmMs: 500 };
+function normalizeCueSound(value: unknown): CueSound {
+  if (value === "soft") return "chime";
+  if (value === "pop") return "bottle";
+  if (value === "enter") return "shutter";
+  if (value === "whoosh" || value === "shutter" || value === "film" || value === "bottle" || value === "chime" || value === "none") return value;
+  return "none";
+}
+
+function normalizeCameraReflow(value: unknown): CameraReflow {
+  return value === "make-room" ? "make-room" : "overlay";
+}
+
+function normalizeSceneRevealSide(value: unknown): SceneRevealSide {
+  return value === "left" || value === "right" ? value : "none";
+}
+
+function normalizeSceneRevealMotion(value: unknown): SceneRevealMotion {
+  return value === "soft" || value === "bounce" ? value : "smooth";
+}
+
+const DEFAULT_TIMING = { holdMs: MIN_GESTURE_HOLD_MS, cooldownMs: 550 };
+const VOICE_ARM_TIMEOUT_MS = 12_000;
 const DEFAULT_MANIPULATION = { armMs: 220, releaseGraceMs: 150, hitPadding: 0.035 };
+const SCENE_MEMBER_SELECTION_GRACE_MS = 320;
 const SCREEN_OVERLAY_ID = "__live-screen-overlay__";
-const DEFAULT_SCREEN_OVERLAY: ScreenOverlaySettings = { placement: "right", size: "medium", visible: true };
+const DEFAULT_SCREEN_OVERLAY: ScreenOverlaySettings = { placement: "right", size: "medium", visible: false, entranceAnimation: "fade", cueSound: "none", cueVolume: 0.55 };
 const CAMERA_FRAME_OPTIONS: { id: CameraFrameMode; label: string; color?: string }[] = [
   { id: "off", label: "Off" },
   { id: "black", label: "Black", color: "#050505" },
@@ -292,11 +426,6 @@ function manipulationLabel(mode: ManipulationMode, subject = "layer") {
   return "";
 }
 
-function cameraSnapLabel(target: CameraSnapTarget) {
-  const label = target.split("-").map((part) => `${part[0].toUpperCase()}${part.slice(1)}`).join(" ");
-  return `${label} camera ${target.includes("-") ? "corner" : "edge"}`;
-}
-
 function diagnosticPalmLandmarks(x: number, y: number): Landmark[] {
   const points: Landmark[] = Array.from({ length: 21 }, () => ({ x, y }));
   points[0] = { x, y: y + 0.12 };
@@ -309,14 +438,85 @@ function diagnosticPalmLandmarks(x: number, y: number): Landmark[] {
   return points;
 }
 
+function diagnosticPinchLandmarks(x: number, y: number): Landmark[] {
+  const points = diagnosticPalmLandmarks(x, y);
+  points[4] = { x: x - 0.008, y: y - 0.11 };
+  points[8] = { x: x + 0.008, y: y - 0.11 };
+  return points;
+}
+
 function gestureLabel(gesture: RecognizedGesture) {
   if (gesture === "fist") return "Fist";
   if (gesture === "palm") return "Open palm";
+  if (gesture === "pinch") return "Pinch";
+  if (gesture === "one") return "Point to focus";
   return GESTURES.find((item) => item.id === gesture)?.label ?? "None";
+}
+
+async function compositionImageFromBlob(blob: Blob, originalUrl: string, rememberUrl: (url: string) => void) {
+  const loadImage = async (url: string) => {
+    const image = new Image();
+    image.decoding = "async";
+    image.src = url;
+    try {
+      await image.decode();
+    } catch {
+      await new Promise<void>((resolve, reject) => {
+        if (image.complete && image.naturalWidth > 0) resolve();
+        else {
+          image.addEventListener("load", () => resolve(), { once: true });
+          image.addEventListener("error", () => reject(new Error("Image pixels could not be decoded.")), { once: true });
+        }
+      });
+    }
+    return image;
+  };
+  const fallback = () => loadImage(originalUrl);
+  if (!("createImageBitmap" in window)) return fallback();
+  try {
+    const bitmap = await createImageBitmap(blob);
+    const size = compositionImageSize(bitmap.width, bitmap.height);
+    if (!size.optimized) {
+      bitmap.close();
+      return fallback();
+    }
+    const canvas = document.createElement("canvas");
+    canvas.width = size.width;
+    canvas.height = size.height;
+    const context = canvas.getContext("2d", { alpha: true });
+    if (!context) {
+      bitmap.close();
+      return fallback();
+    }
+    context.drawImage(bitmap, 0, 0, size.width, size.height);
+    bitmap.close();
+    const optimizedBlob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/webp", 0.96));
+    if (!optimizedBlob) return fallback();
+    const optimizedUrl = URL.createObjectURL(optimizedBlob);
+    rememberUrl(optimizedUrl);
+    return loadImage(optimizedUrl);
+  } catch {
+    return fallback();
+  }
 }
 
 function shortName(name: string, length = 24) {
   return name.length > length ? `${name.slice(0, length - 1)}…` : name;
+}
+
+function directorImportDefaults(kind: StudioAsset["kind"], ordinal: number, aspect: CanvasAspectId): Partial<StudioAsset> {
+  if (kind === "csv" || kind === "json") {
+    return { placement: "center", size: "medium", cameraReflow: "overlay", entranceAnimation: "pop" };
+  }
+  if (aspect === "portrait") {
+    return { placement: "center", size: "medium", cameraReflow: "overlay", entranceAnimation: "pop" };
+  }
+  return {
+    placement: ordinal % 2 === 0 ? "right" : "left",
+    size: "medium",
+    cameraReflow: "make-room",
+    entranceAnimation: "slide"
+  };
 }
 
 function formatDuration(seconds: number) {
@@ -400,8 +600,106 @@ function screenOverlayAsset(capture: ScreenCaptureSettings, settings: ScreenOver
     size: settings.size,
     transform: settings.transform,
     dataView: "table",
-    stageBackground: "camera"
+    stageBackground: "camera",
+    entranceAnimation: settings.entranceAnimation ?? "fade",
+    cueSound: settings.cueSound ?? "none",
+    cueVolume: settings.cueVolume ?? 0.55
   };
+}
+
+function mergedAssetIds(...sets: ReadonlySet<string>[]) {
+  return new Set(sets.flatMap((set) => [...set]));
+}
+
+function buildStageHitCandidates(
+  stageWidth: number,
+  stageHeight: number,
+  liveLayerIds: readonly string[],
+  assets: readonly StudioAsset[],
+  scenes: readonly StudioScene[],
+  images: Map<string, HTMLImageElement>,
+  videos: Map<string, HTMLVideoElement>,
+  sceneSolo: Readonly<Record<string, string>>,
+  includeSceneGroups = true,
+  hiddenAssetIds: ReadonlySet<string> = new Set()
+) {
+  const candidates: StageHitCandidate[] = [];
+  const hitLayers = visibleLayersForComposition(liveLayerIds
+    .map((layerId) => resolveLayer(layerId, assets, scenes))
+    .filter((layer): layer is StudioLayer => Boolean(layer)));
+  hitLayers.forEach((layer) => {
+    const layerId = layer.id;
+    if (layer.kind === "asset") {
+      if (hiddenAssetIds.has(layer.asset.id)) return;
+      const source = layer.asset.kind === "image" ? images.get(layer.asset.id) : videos.get(layer.asset.id);
+      const sourceWidth = source instanceof HTMLImageElement ? source.naturalWidth : source instanceof HTMLVideoElement ? source.videoWidth : undefined;
+      const sourceHeight = source instanceof HTMLImageElement ? source.naturalHeight : source instanceof HTMLVideoElement ? source.videoHeight : undefined;
+      const base = baseAssetRect(stageWidth, stageHeight, layer.asset, sourceWidth, sourceHeight);
+      const panelRatio = layer.asset.placement === "left" || layer.asset.placement === "right"
+        ? cameraReflowPanelRatioForSide(hitLayers, layer.asset.placement)
+        : null;
+      const bounds = reflowAssetPanelRect(stageWidth, stageHeight, layer.asset, panelRatio ?? undefined) ?? undefined;
+      candidates.push({
+        layerId,
+        rect: applyAssetTransform(stageWidth, stageHeight, base, layer.asset.transform, bounds)
+      });
+      return;
+    }
+
+    const groupRect = sceneDisplayRect(stageWidth, stageHeight, layer.scene);
+    if (includeSceneGroups) candidates.push({ layerId, rect: groupRect });
+    const memberBases = sceneMemberContentRects(layer.scene, groupRect, layer.assets, { images, videos });
+    const memberRects = sceneMemberDisplayRects(layer.scene, groupRect, memberBases);
+    const rectById = new Map(layer.scene.memberIds.map((id, index) => [id, memberRects[index]]));
+    const soloId = sceneSolo[layer.scene.id];
+    if (soloId) {
+      const asset = layer.assets.find((item) => item.id === soloId);
+      if (asset && !hiddenAssetIds.has(soloId)) candidates.push({
+        layerId,
+        sceneMemberId: soloId,
+        rect: sceneFocusedMemberRect(stageWidth, stageHeight, layer.scene, asset, { images, videos })
+      });
+      return;
+    }
+    const memberOrder = sceneMemberDrawOrder(layer.scene).filter((id) => !hiddenAssetIds.has(id));
+    memberOrder.forEach((sceneMemberId) => {
+      const rect = rectById.get(sceneMemberId);
+      if (rect) candidates.push({ layerId, sceneMemberId, rect });
+    });
+  });
+  return candidates;
+}
+
+function buildVideoStyleSlotCandidates(
+  stageWidth: number,
+  stageHeight: number,
+  styleId: VideoStyleId,
+  assets: readonly StudioAsset[],
+  focusedAssetId: string | null,
+  deck?: { offset: number; windowStart: number; total: number }
+): StageHitCandidate[] {
+  const visible = assets;
+  const layout = videoStyleLayout(styleId, stageWidth, stageHeight, visible.length, deck);
+  const focusedVisibleAsset = Boolean(focusedAssetId && visible.some((asset) => asset.id === focusedAssetId));
+  if (focusedVisibleAsset && !layout.keepSlotsWhileFocused) return [];
+  return layout.slots.flatMap((rect, index) => visible[index] ? [{ layerId: visible[index].id, rect }] : []);
+}
+
+function videoStyleWindow(assets: readonly StudioAsset[], scenes: readonly StudioScene[], screenAsset?: StudioAsset | null, focusedAssetId: string | null = null, deckOffset = 0) {
+  void scenes;
+  const candidates = assetsForMainDock(assets, screenAsset);
+  const capacity = MAX_STYLE_ASSETS;
+  const maximumOffset = Math.max(0, candidates.length - capacity);
+  const offset = Math.max(0, Math.min(maximumOffset, deckOffset));
+  const windowStart = Math.max(0, Math.min(Math.max(0, candidates.length - (capacity + 2)), Math.floor(deckOffset) - 1));
+  const window = candidates.slice(windowStart, windowStart + capacity + 2);
+  const focused = focusedAssetId ? candidates.find((asset) => asset.id === focusedAssetId) : undefined;
+  const visible = focused && !window.some((asset) => asset.id === focused.id) ? [...window, focused] : window;
+  return { assets: visible, windowStart, total: candidates.length, offset };
+}
+
+function videoStyleAssets(assets: readonly StudioAsset[], scenes: readonly StudioScene[], screenAsset?: StudioAsset | null, focusedAssetId: string | null = null, deckOffset = 0) {
+  return videoStyleWindow(assets, scenes, screenAsset, focusedAssetId, deckOffset).assets;
 }
 
 export default function App() {
@@ -409,8 +707,26 @@ export default function App() {
   const diagnostics = import.meta.env.DEV && params.has("diagnostics");
   const diagnosticScenario = diagnostics ? params.get("scenario") : null;
   const provider = useMemo<MediaProvider>(
-    () => diagnostics ? createSyntheticMediaProvider() : createBrowserMediaProvider(),
-    [diagnostics]
+    () => diagnostics ? createSyntheticMediaProvider(
+      diagnosticScenario === "streaming-speech"
+        ? { speechFixtureUrl: "/diagnostics/pull-up-dashboard.mp3", speechFixtureDelayMs: 6_000 }
+        : diagnosticScenario === "streaming-multi"
+          ? { speechFixtureUrl: "/diagnostics/compare-dashboard-product.mp3", speechFixtureDelayMs: 6_000 }
+          : diagnosticScenario === "streaming-sequence"
+            ? { speechFixtures: [
+              { url: "/diagnostics/pull-up-dashboard.mp3", delayMs: 6_000 },
+              { url: "/diagnostics/pull-up-product.mp3", delayMs: 11_000 },
+              { url: "/diagnostics/pull-up-proof.mp3", delayMs: 16_000 }
+            ] }
+            : diagnosticScenario === "import-flow"
+              ? { speechFixtures: [
+                { url: "/diagnostics/pull-up-dashboard.mp3", delayMs: 6_000 },
+                { url: "/diagnostics/pull-up-product.mp3", delayMs: 11_000 },
+                { url: "/diagnostics/pull-up-proof.mp3", delayMs: 16_000 }
+              ] }
+        : undefined
+    ) : createBrowserMediaProvider(),
+    [diagnosticScenario, diagnostics]
   );
 
   const [phase, setPhase] = useState<StudioPhase>("idle");
@@ -440,28 +756,58 @@ export default function App() {
   });
   const [granted, setGranted] = useState<GrantedVideoSettings | null>(null);
   const [compositionStats, setCompositionStats] = useState<CompositionHealth>({ fps: 0, averageMs: 0, budgetPercent: 0, overBudgetFrames: 0 });
+  const [compositionDriver, setCompositionDriver] = useState<CompositionDriver>(() => preferredCompositionDriver());
   const [projectId, setProjectId] = useState("");
   const [projectName, setProjectName] = useState("Untitled project");
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [projectHydrated, setProjectHydrated] = useState(diagnostics);
   const [projectSaveState, setProjectSaveState] = useState<"loading" | "saved" | "saving" | "error">(diagnostics ? "saved" : "loading");
+  const [welcomeOpen, setWelcomeOpen] = useState(!diagnostics);
   const [assets, setAssets] = useState<StudioAsset[]>([]);
   const [scenes, setScenes] = useState<StudioScene[]>([]);
+  const [concepts, setConcepts] = useState<StudioConcept[]>([]);
+  const [intentQueue, setIntentQueue] = useState<IntentCandidate[]>([]);
+  const [intentPulse, setIntentPulse] = useState(0);
+  const [confirmFeedback, setConfirmFeedback] = useState("");
+  const [videoStyleId, setVideoStyleId] = useState<VideoStyleId>(() => {
+    const stored = localStorage.getItem("rii-flow-video-style") as VideoStyleId | null;
+    return stored === "bottom-shelf" ? "center-shelf" : VIDEO_STYLES.some((style) => style.id === stored) ? stored! : "right-rail";
+  });
+  const [assetDeckMode, setAssetDeckMode] = useState<AssetDeckMode>(() => diagnostics ? "always" : "command");
+  const [assetDeckVisible, setAssetDeckVisible] = useState(() => diagnostics);
+  const [assetDeckOffset, setAssetDeckOffset] = useState(0);
+  const [deckPlacement, setDeckPlacement] = useState(() => videoStyleId === "top-shelf" ? 0.055 : videoStyleId === "center-shelf" ? 0.425 : videoStyleId === "bottom-shelf" ? 0.77 : 0.5);
+  const [panelBackground, setPanelBackground] = useState(() => localStorage.getItem("rii-flow-panel-background") ?? "#15131a");
+  const [timelineEvents, setTimelineEvents] = useState<VisualTimelineEvent[]>([]);
+  const [selectedDirectorEventId, setSelectedDirectorEventId] = useState<string | null>(null);
+  const [studioPresetId, setStudioPresetId] = useState<StudioPresetId>(() => {
+    const stored = localStorage.getItem("rii-flow-studio-preset");
+    return STUDIO_PRESETS.some((preset) => preset.id === stored) ? stored as StudioPresetId : "talking-head";
+  });
+  const [gestureSequences, setGestureSequences] = useState<GestureSequenceMap>({});
+  const [activeGestureCue, setActiveGestureCue] = useState<{ gesture: GestureId; index: number; total: number; name: string } | null>(null);
   const [sceneBuilderOpen, setSceneBuilderOpen] = useState(false);
+  const [widgets, setWidgets] = useState<CanvasWidget[]>([]);
+  const [selectedWidgetId, setSelectedWidgetId] = useState<string | null>(null);
+  const [widgetPanelOpen, setWidgetPanelOpen] = useState(false);
+  const [sidebarPage, setSidebarPage] = useState<"setup" | "widgets" | "downloads">("setup");
+  const [widgetPanelMode, setWidgetPanelMode] = useState<"stickers" | "settings">("stickers");
   const [sceneDraftName, setSceneDraftName] = useState("New collage");
   const [sceneDraftLayout, setSceneDraftLayout] = useState<SceneLayout>("grid");
   const [sceneDraftMembers, setSceneDraftMembers] = useState<string[]>([]);
   const [sceneSolo, setSceneSolo] = useState<Record<string, string>>({});
+  const [pointFocus, setPointFocus] = useState<PointFocusState | null>(null);
+  const [liveBudgetNotice, setLiveBudgetNotice] = useState<string | null>(null);
   const [liveLayerIds, setLiveLayerIds] = useState<string[]>([]);
   const [activeLayerId, setActiveLayerId] = useState<string | null>(null);
+  const [directorCursor, setDirectorCursor] = useState(0);
+  const [directorFocusedAssetId, setDirectorFocusedAssetId] = useState<string | null>(null);
   const [detected, setDetected] = useState<{ gesture: RecognizedGesture; confidence: number; source: string }>({ gesture: null, confidence: 0, source: "none" });
   const [holdProgress, setHoldProgress] = useState(0);
   const [armed, setArmed] = useState(true);
   const [timing, setTiming] = useState(DEFAULT_TIMING);
   const [palmHoldMs, setPalmHoldMs] = useState(DEFAULT_MANIPULATION.armMs);
   const [manipulation, setManipulation] = useState<{ mode: ManipulationMode; progress: number }>({ mode: "idle", progress: 0 });
-  const [sceneTemplateSnapped, setSceneTemplateSnapped] = useState(false);
-  const [cameraBorderSnap, setCameraBorderSnap] = useState<CameraSnapTarget | null>(null);
   const [sceneMemberTargetId, setSceneMemberTargetId] = useState<string | null>(null);
   const [selectedSceneMemberId, setSelectedSceneMemberId] = useState<string | null>(null);
   const [activatedAt, setActivatedAt] = useState(0);
@@ -474,6 +820,8 @@ export default function App() {
   const [recordingSignature, setRecordingSignature] = useState("");
   const [recordings, setRecordings] = useState<RecordedClip[]>([]);
   const [previewTakeId, setPreviewTakeId] = useState<string | null>(null);
+  const [pendingDeleteTakeId, setPendingDeleteTakeId] = useState<string | null>(null);
+  const [deletingTakeId, setDeletingTakeId] = useState<string | null>(null);
   const [editingTakeId, setEditingTakeId] = useState<string | null>(null);
   const [editingTakeName, setEditingTakeName] = useState("");
   const [assetEditorId, setAssetEditorId] = useState<string | null>(null);
@@ -491,6 +839,19 @@ export default function App() {
   const [captionDrag, setCaptionDrag] = useState({ dragging: false, snapX: false, snapY: false });
   const [captionPreviewTime, setCaptionPreviewTime] = useState(0);
   const [captionPreviewPlaying, setCaptionPreviewPlaying] = useState(false);
+  const [wordAnimationCues, setWordAnimationCues] = useState<WordAnimationCue[]>([]);
+  const [voiceEmphasisMarkers, setVoiceEmphasisMarkers] = useState<VoiceEmphasisMarker[]>([]);
+  const [liveWordSpark, setLiveWordSpark] = useState<VoiceEmphasisMarker | null>(null);
+  const [morphGestureProgress, setMorphGestureProgress] = useState(0);
+  const [morphExitAssetId, setMorphExitAssetId] = useState<string | null>(null);
+  // Browser Rii-Flow is deliberately gesture-first. Native keyword control is
+  // preserved in the separate desktop project, not loaded into this build.
+  const voiceCuesEnabled = false;
+  const [armedVoiceTarget, setArmedVoiceTarget] = useState<ArmedVoiceTarget | null>(null);
+  const [operatorShelfOpen, setOperatorShelfOpen] = useState(false);
+  const [operatorShelfTargetId, setOperatorShelfTargetId] = useState<string | null>(null);
+  const [operatorShelfProgress, setOperatorShelfProgress] = useState(0);
+  const [spotlight, setSpotlight] = useState<SpotlightState | null>(null);
   const [recordingsDirectory, setRecordingsDirectory] = useState<FileSystemDirectoryHandle | null>(null);
   const [folderPermission, setFolderPermission] = useState<PermissionState | "unsupported">("prompt");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -528,11 +889,34 @@ export default function App() {
   const objectUrlsRef = useRef<string[]>([]);
   const imagesRef = useRef(new Map<string, HTMLImageElement>());
   const videosRef = useRef(new Map<string, HTMLVideoElement>());
+  const completedVideoIdsRef = useRef<Set<string>>(new Set());
+  const completedVideoVersionRef = useRef(0);
+  const budgetHiddenAssetIdsRef = useRef<Set<string>>(new Set());
+  const budgetHiddenVersionRef = useRef(0);
   const assetsRef = useRef(assets);
   const scenesRef = useRef(scenes);
+  const videoStyleRef = useRef<VideoStyleId>(videoStyleId);
+  const assetDeckModeRef = useRef<AssetDeckMode>(assetDeckMode);
+  const assetDeckVisibleRef = useRef(assetDeckVisible);
+  const assetDeckOffsetRef = useRef(0);
+  const deckScrollControllerRef = useRef(new DeckScrollController());
+  const deckPlacementRef = useRef(deckPlacement);
+  const panelBackgroundRef = useRef(panelBackground);
+  const deckScrollEngagedRef = useRef(false);
+  const suppressDeckFocusUntilRef = useRef(0);
+  const deckFlickCandidateRef = useRef<{ axisStart: number; lastAxis: number; startedAt: number } | null>(null);
+  const timelineEventsRef = useRef<VisualTimelineEvent[]>([]);
+  const gestureSequencesRef = useRef<GestureSequenceMap>(gestureSequences);
+  const gestureSequenceCursorRef = useRef<Partial<Record<GestureId, number>>>({});
   const liveLayerIdsRef = useRef(liveLayerIds);
   const activeLayerIdRef = useRef(activeLayerId);
-  const activatedAtRef = useRef(activatedAt);
+  const directorQueueRef = useRef<StudioLayer[]>([]);
+  const directorCursorRef = useRef(0);
+  const directorFocusedAssetIdRef = useRef<string | null>(null);
+  const palmRestoreRef = useRef({ since: 0, latched: false });
+  const transientAssetLayoutsRef = useRef(new Map<string, Pick<StudioAsset, "placement" | "size" | "transform" | "cameraReflow">>());
+  const transientSceneLayoutsRef = useRef(new Map<string, Pick<StudioScene, "placement" | "size" | "transform" | "memberTransforms" | "memberOrder">>());
+  const layerActivationTimesRef = useRef<Record<string, number>>({});
   const studioReadyRef = useRef(studioReady);
   const recordingRef = useRef(isRecording);
   const selectedCameraRef = useRef(selectedCameraId);
@@ -541,20 +925,34 @@ export default function App() {
   const screenSettingsRef = useRef(screenSettings);
   const screenOverlayRef = useRef(screenOverlay);
   const qualityRef = useRef(qualityId);
+  const compositionStatsRef = useRef(compositionStats);
   const aspectRef = useRef(aspectId);
   const mirrorCameraRef = useRef(mirrorCamera);
   const cameraFrameRef = useRef(cameraFrame);
+  const cameraReflowControllerRef = useRef(new CameraReflowController());
+  const cameraReflowFrameRef = useRef<CameraReflowFrame>({ x: 0, width: 1, target: null, transitioning: false });
   const monitorMediaAudioRef = useRef(monitorMediaAudio);
   const phaseRef = useRef(phase);
   const gateRef = useRef(new GestureGate(DEFAULT_TIMING));
+  const assetDeckGateRef = useRef(new GestureGate({ holdMs: 120, cooldownMs: 350 }));
   const stabilizerRef = useRef(new GestureStabilizer());
   const manipulationTrackerRef = useRef(new ManipulationTracker(DEFAULT_MANIPULATION));
   const palmSignalTrackerRef = useRef(new PalmSignalTracker());
+  const pointFocusTrackerRef = useRef(new PointFocusTracker(420));
+  const widgetPointTrackerRef = useRef(new PointFocusTracker(280));
+  const orbitScrollRef = useRef<{ widgetId: string; lastY: number } | null>(null);
+  const circleMorphTrackerRef = useRef(new CircleMorphTracker());
   const manipulationGuardUntilRef = useRef(0);
   const sceneMemberTargetIdRef = useRef<string | null>(null);
+  const sceneMemberMissSinceRef = useRef<number | null>(null);
   const switchCameraRef = useRef<(deviceId: string, preset: QualityPreset, initial?: boolean) => Promise<void>>(async () => undefined);
   const switchMicrophoneRef = useRef<(deviceId: string, initial?: boolean, force?: boolean) => Promise<void>>(async () => undefined);
   const stopRecordingRef = useRef<() => void>(() => undefined);
+  const activateStudioLayerRef = useRef<(layer: StudioLayer) => void>(() => undefined);
+  const revealVoiceTargetRef = useRef<(target: VoiceTriggerTarget, source: "voice" | "shelf") => void>(() => undefined);
+  const chooseShelfTargetRef = useRef<(target: VoiceTriggerTarget) => void>(() => undefined);
+  const focusVideoStyleAssetRef = useRef<(asset: StudioAsset) => void>(() => undefined);
+  const startMorphExitRef = useRef<(assetId: string) => void>(() => undefined);
   const studioSessionRef = useRef(0);
   const studioStartingRef = useRef(false);
   const pendingFallbackRef = useRef<string | null>(null);
@@ -569,38 +967,110 @@ export default function App() {
   const assetEditorVideoRef = useRef<HTMLVideoElement>(null);
   const captionPreviewCanvasRef = useRef<HTMLCanvasElement>(null);
   const captionDragPointerRef = useRef<{ pointerId: number; offsetX: number; offsetY: number } | null>(null);
+  const voiceEmphasisTrackerRef = useRef(new VoiceEmphasisTracker());
+  const voiceEmphasisMarkersRef = useRef<VoiceEmphasisMarker[]>([]);
+  const liveWordSparkTimerRef = useRef<number | null>(null);
+  const confirmFeedbackTimerRef = useRef<number | null>(null);
+  const assetMorphExitRef = useRef<AssetMorphExit | null>(null);
+  const activeGeometryRef = useRef<{ rect: Rect } | null>(null);
+  const morphFocusLockUntilRef = useRef(0);
+  const diagnosticCaptionOpenedRef = useRef<string | null>(null);
+  const conceptsRef = useRef<StudioConcept[]>([]);
+  const intentQueueRef = useRef<IntentCandidate[]>([]);
+  const intentEngineRef = useRef(new IntentEngine());
+  const studioEventsRef = useRef(new StudioEventBus());
+  const swipeTrackerRef = useRef(new SwipeTracker());
+  const confirmIntentRef = useRef<() => void>(() => undefined);
+  const conceptCooldownsRef = useRef(new Map<string, number>());
+  const conceptCursorsRef = useRef(new Map<string, number>());
+  const armedVoiceTargetRef = useRef<ArmedVoiceTarget | null>(null);
+  const voiceArmTimerRef = useRef<number | null>(null);
+  const operatorShelfOpenRef = useRef(false);
+  const operatorShelfItemsRef = useRef<OperatorShelfItem[]>([]);
+  const operatorShelfPointTrackerRef = useRef(new PointFocusTracker(170));
+  const widgetsRef = useRef<CanvasWidget[]>([]);
+  const widgetAudioRef = useRef(new Map<string, HTMLAudioElement>());
+  const widgetAudioInputRef = useRef<HTMLInputElement | null>(null);
+  const activateWidgetRef = useRef<(widget: CanvasWidget) => void>(() => undefined);
+  const palmCommandTrackerRef = useRef(new PalmCommandTracker());
+  const thumbDeckTrackerRef = useRef(new PalmCommandTracker());
+  const shelfPointCarryoverRef = useRef(false);
+  const spotlightRef = useRef<SpotlightState | null>(null);
+  const spotlightRectRef = useRef<Rect | null>(null);
+
+  const currentVideoStyleAssets = useCallback(() => {
+    const screenAsset = screenSettingsRef.current
+      ? screenOverlayAsset(screenSettingsRef.current, screenOverlayRef.current)
+      : null;
+    return videoStyleAssets(assetsRef.current, scenesRef.current, screenAsset, activeLayerIdRef.current, assetDeckOffsetRef.current);
+  }, []);
+
+  const currentVideoStyleWindow = useCallback(() => {
+    const screenAsset = screenSettingsRef.current
+      ? screenOverlayAsset(screenSettingsRef.current, screenOverlayRef.current)
+      : null;
+    return videoStyleWindow(assetsRef.current, scenesRef.current, screenAsset, activeLayerIdRef.current, assetDeckOffsetRef.current);
+  }, []);
 
   const liveScreenAsset = useMemo(() => screenSettings ? screenOverlayAsset(screenSettings, screenOverlay) : null, [screenOverlay, screenSettings]);
+  const styleWindow = useMemo(() => videoStyleWindow(assets, scenes, liveScreenAsset, null, assetDeckOffset), [assetDeckOffset, assets, liveScreenAsset, scenes]);
+  const styleAssets = styleWindow.assets;
+  const dockAssets = useMemo(() => {
+    const items = assets.filter((asset) => asset.kind !== "text");
+    return liveScreenAsset ? [...items, liveScreenAsset] : items;
+  }, [assets, liveScreenAsset]);
+  const currentStyleLayout = useMemo(
+    () => videoStyleLayout(videoStyleId, outputSize.width, outputSize.height, styleAssets.length, { offset: styleWindow.offset, windowStart: styleWindow.windowStart, total: styleWindow.total, position: deckPlacement }),
+    [deckPlacement, outputSize.height, outputSize.width, styleAssets.length, styleWindow.offset, styleWindow.total, styleWindow.windowStart, videoStyleId]
+  );
   const activeLayer = useMemo(() => activeLayerId === SCREEN_OVERLAY_ID && liveScreenAsset
     ? { id: SCREEN_OVERLAY_ID, kind: "asset" as const, asset: liveScreenAsset }
     : activeLayerId ? resolveLayer(activeLayerId, assets, scenes) : null, [activeLayerId, assets, liveScreenAsset, scenes]);
   const activeAsset = activeLayer?.kind === "asset" ? activeLayer.asset : null;
+  const assetDeckOnStage = assetDeckVisible || Boolean(activeAsset && styleAssets.some((asset) => asset.id === activeAsset.id));
   const activeScene = activeLayer?.kind === "scene" ? activeLayer.scene : null;
   const activeSceneSoloId = activeScene ? sceneSolo[activeScene.id] : undefined;
-  const focusedSceneMemberId = sceneMemberTargetId ?? selectedSceneMemberId;
+  const focusedSceneMemberId = sceneMemberTargetId ?? selectedSceneMemberId ?? activeSceneSoloId;
   const activeGeometry = useMemo(() => {
     if (!activeLayer) return null;
     if (activeLayer.kind === "scene") {
       const base = sceneBaseRect(outputSize.width, outputSize.height, activeLayer.scene);
-      return { base, rect: applyAssetTransform(outputSize.width, outputSize.height, base, activeLayer.scene.transform), transform: activeLayer.scene.transform };
+      return { base, bounds: undefined, rect: sceneDisplayRect(outputSize.width, outputSize.height, activeLayer.scene), transform: activeLayer.scene.transform };
     }
     const source = activeLayer.asset.id === SCREEN_OVERLAY_ID
       ? undefined
       : activeLayer.asset.kind === "image" ? imagesRef.current.get(activeLayer.asset.id) : activeLayer.asset.kind === "video" ? videosRef.current.get(activeLayer.asset.id) : undefined;
     const sourceWidth = activeLayer.asset.id === SCREEN_OVERLAY_ID ? screenSettings?.width : source instanceof HTMLImageElement ? source.naturalWidth : source instanceof HTMLVideoElement ? source.videoWidth : undefined;
     const sourceHeight = activeLayer.asset.id === SCREEN_OVERLAY_ID ? screenSettings?.height : source instanceof HTMLImageElement ? source.naturalHeight : source instanceof HTMLVideoElement ? source.videoHeight : undefined;
+    if (styleAssets.some((asset) => asset.id === activeLayer.asset.id)) {
+      const base = styleFocusBaseRect(currentStyleLayout, activeLayer.asset, sourceWidth, sourceHeight);
+      const bounds = styleTransformBounds(currentStyleLayout);
+      return { base, bounds, rect: applyAssetTransform(outputSize.width, outputSize.height, base, activeLayer.asset.transform, bounds), transform: activeLayer.asset.transform };
+    }
     const base = baseAssetRect(outputSize.width, outputSize.height, activeLayer.asset, sourceWidth, sourceHeight);
-    return { base, rect: applyAssetTransform(outputSize.width, outputSize.height, base, activeLayer.asset.transform), transform: activeLayer.asset.transform };
-  }, [activeLayer, outputSize.height, outputSize.width, screenSettings?.height, screenSettings?.width]);
+    const activeLiveLayers = visibleLayersForComposition(liveLayerIds
+      .map((id) => resolveLayer(id, assets, scenes))
+      .filter((layer): layer is StudioLayer => Boolean(layer)));
+    const panelRatio = activeLayer.asset.placement === "left" || activeLayer.asset.placement === "right"
+      ? cameraReflowPanelRatioForSide(activeLiveLayers, activeLayer.asset.placement)
+      : null;
+    const bounds = reflowAssetPanelRect(outputSize.width, outputSize.height, activeLayer.asset, panelRatio ?? undefined) ?? undefined;
+    return { base, bounds, rect: applyAssetTransform(outputSize.width, outputSize.height, base, activeLayer.asset.transform, bounds), transform: activeLayer.asset.transform };
+  }, [activeLayer, assets, currentStyleLayout, liveLayerIds, outputSize.height, outputSize.width, scenes, screenSettings?.height, screenSettings?.width, styleAssets]);
+  useEffect(() => {
+    activeGeometryRef.current = activeGeometry ? { rect: activeGeometry.rect } : null;
+  }, [activeGeometry]);
   const activeSceneMemberGeometry = useMemo(() => {
     if (!activeScene || !activeGeometry || !focusedSceneMemberId) return null;
     const index = activeScene.memberIds.indexOf(focusedSceneMemberId);
     if (index < 0) return null;
     const bases = sceneMemberContentRects(activeScene, activeGeometry.rect, assets, { images: imagesRef.current, videos: videosRef.current });
-    const rect = sceneMemberDisplayRects(activeScene, activeGeometry.rect, bases)[index];
     const asset = assets.find((item) => item.id === focusedSceneMemberId);
+    const rect = activeSceneSoloId === focusedSceneMemberId && asset
+      ? sceneFocusedMemberRect(outputSize.width, outputSize.height, activeScene, asset, { images: imagesRef.current, videos: videosRef.current })
+      : sceneMemberDisplayRects(activeScene, activeGeometry.rect, bases)[index];
     return rect && asset ? { rect, asset } : null;
-  }, [activeGeometry, activeScene, assets, focusedSceneMemberId]);
+  }, [activeGeometry, activeScene, activeSceneSoloId, assets, focusedSceneMemberId, outputSize.height, outputSize.width]);
   const activeSceneMemberEditorGeometry = useMemo(() => {
     if (!activeScene || !activeGeometry || !selectedSceneMemberId) return null;
     const index = activeScene.memberIds.indexOf(selectedSceneMemberId);
@@ -623,12 +1093,29 @@ export default function App() {
     .filter((layer): layer is StudioLayer => Boolean(layer)), [assets, liveLayerIds, scenes]);
   const activeFrameRate = Math.max(1, Math.min(qualityPreset(qualityId).fps, granted?.frameRate || qualityPreset(qualityId).fps));
   const actualBitrate = bitrateForActual(outputSize.width, outputSize.height, activeFrameRate);
-  const assetSceneMembership = useMemo(() => {
-    const membership = new Map<string, StudioScene>();
-    scenes.forEach((scene) => scene.memberIds.forEach((id) => membership.set(id, scene)));
-    return membership;
-  }, [scenes]);
-  const standaloneAssets = useMemo(() => assets.filter((asset) => !assetSceneMembership.has(asset.id)), [assetSceneMembership, assets]);
+  const sceneDraftVideoCount = useMemo(() => {
+    const selected = new Set(sceneDraftMembers);
+    return assets.filter((asset) => selected.has(asset.id) && asset.kind === "video").length;
+  }, [assets, sceneDraftMembers]);
+  const effectiveGestureSequences = useMemo(
+    () => normalizeGestureSequences(assets, scenes, gestureSequences),
+    [assets, gestureSequences, scenes]
+  );
+  const standaloneAssets = assets.filter((asset) => asset.kind !== "text");
+  const hiddenStyleAssetCount = Math.max(0, standaloneAssets.length - (MAX_STYLE_ASSETS - (liveScreenAsset ? 1 : 0)));
+  const directorQueue = useMemo(() => buildDirectorQueue(assets, scenes), [assets, scenes]);
+  const directorCurrentIndex = directorCueIndex(directorQueue, activeLayerId, directorCursor);
+  const directorCurrentCue = directorQueue[directorCurrentIndex] ?? null;
+  const directorNextCue = directorQueue[Math.min(directorQueue.length - 1, directorCurrentIndex + 1)] ?? null;
+  const directorCueLive = Boolean(directorCurrentCue && directorCurrentCue.id === activeLayerId);
+  const voiceTriggerTargets = useMemo<VoiceTriggerTarget[]>(() => triggerTargets(assets, scenes), [assets, scenes]);
+  const operatorShelfItems = useMemo<OperatorShelfItem[]>(() => voiceTriggerTargets
+    .slice(0, MAX_OPERATOR_SHELF_ITEMS)
+    .map(({ id, kind, name, triggerWord }) => ({ id, kind, name, triggerWord })), [voiceTriggerTargets]);
+  const operatorShelfLayout = useMemo(
+    () => operatorShelfRects(operatorShelfItems, aspectId === "portrait"),
+    [aspectId, operatorShelfItems]
+  );
   const finishTake = finishTakeId ? recordings.find((take) => take.id === finishTakeId) ?? null : null;
   const assetEditor = assetEditorId ? assets.find((asset) => asset.id === assetEditorId) ?? null : null;
   const assetEditorDuration = assetEditor?.kind === "video" ? Math.max(0, assetEditor.mediaDuration ?? 0) : 0;
@@ -640,32 +1127,119 @@ export default function App() {
   const captionPreviewSegment = captionSegments.length
     ? activeCaptionAt(captionSegments, captionPreviewTime) ?? (!captionPreviewPlaying ? captionSegments[0] : null)
     : null;
+  const previewWordAnimation = activeWordAnimationAt(wordAnimationCues, captionPreviewTime);
   const finishDuration = Math.max(0, finishTakeMediaDuration || finishTake?.durationSeconds || 0);
   const normalizedTakeTrim = normalizeVideoTrim(takeTrim, finishDuration);
   const takeIsTrimmed = hasVideoTrim(normalizedTakeTrim, finishDuration);
   const captionsReady = captionEnabled && captionSegments.length > 0;
-  const hasFinalEdits = takeIsTrimmed || captionsReady;
+  const wordAnimationsReady = wordAnimationCues.length > 0;
+  const hasFinalEdits = takeIsTrimmed || captionsReady || wordAnimationsReady;
 
   useEffect(() => { assetsRef.current = assets; }, [assets]);
+  useEffect(() => {
+    if (!projectHydrated) return;
+    const used = new Set<string>();
+    assets.forEach((asset) => {
+      const cue = normalizeTriggerWord(asset.triggerWord ?? "");
+      if (cue) used.add(cue);
+    });
+    let assetsChanged = false;
+    const nextAssets = assets.map((asset) => {
+      if (normalizeTriggerWord(asset.triggerWord ?? "")) return asset;
+      const triggerWord = suggestAssetTrigger(asset, used);
+      used.add(triggerWord);
+      assetsChanged = true;
+      return { ...asset, triggerWord };
+    });
+    scenes.forEach((scene) => {
+      const cue = normalizeTriggerWord(scene.triggerWord ?? "");
+      if (cue) used.add(cue);
+    });
+    let scenesChanged = false;
+    const nextScenes = scenes.map((scene) => {
+      if (normalizeTriggerWord(scene.triggerWord ?? "")) return scene;
+      const triggerWord = suggestSceneTrigger(scene, nextAssets, used);
+      used.add(triggerWord);
+      scenesChanged = true;
+      return { ...scene, triggerWord };
+    });
+    if (assetsChanged) {
+      assetsRef.current = nextAssets;
+      setAssets(nextAssets);
+    }
+    if (scenesChanged) {
+      scenesRef.current = nextScenes;
+      setScenes(nextScenes);
+    }
+  }, [assets, projectHydrated, scenes]);
   useEffect(() => {
     document.documentElement.dataset.theme = themeMode;
     localStorage.setItem("rii-flow-theme", themeMode);
   }, [themeMode]);
   useEffect(() => { scenesRef.current = scenes; }, [scenes]);
+  useEffect(() => { conceptsRef.current = concepts; }, [concepts]);
+  useEffect(() => { intentQueueRef.current = intentQueue; }, [intentQueue]);
+  useEffect(() => {
+    setConcepts((current) => reconcileConcepts(current, assets, scenes));
+  }, [assets, scenes]);
+  useEffect(() => {
+    videoStyleRef.current = videoStyleId;
+    localStorage.setItem("rii-flow-video-style", videoStyleId);
+  }, [videoStyleId]);
+  useEffect(() => {
+    panelBackgroundRef.current = panelBackground;
+    localStorage.setItem("rii-flow-panel-background", panelBackground);
+  }, [panelBackground]);
+  useEffect(() => {
+    assetDeckModeRef.current = assetDeckMode;
+    if (!diagnostics) localStorage.setItem("rii-flow-asset-deck-mode", assetDeckMode);
+    if (assetDeckMode === "always") {
+      assetDeckVisibleRef.current = true;
+      setAssetDeckVisible(true);
+    }
+    assetDeckGateRef.current.reset();
+  }, [assetDeckMode, diagnostics]);
+  useEffect(() => { assetDeckVisibleRef.current = assetDeckVisible; }, [assetDeckVisible]);
+  useEffect(() => { deckPlacementRef.current = deckPlacement; }, [deckPlacement]);
+  useEffect(() => { widgetsRef.current = widgets; }, [widgets]);
+  useEffect(() => {
+    try {
+      (navigator.mediaDevices as CaptureHandleMediaDevices | undefined)?.setCaptureHandleConfig?.({
+        exposeOrigin: true,
+        handle: RII_FLOW_CAPTURE_HANDLE,
+        permittedOrigins: ["*"]
+      });
+    } catch {
+      // Capture Handle is progressive enhancement; label/surface guards remain active.
+    }
+  }, []);
+  useEffect(() => { operatorShelfItemsRef.current = operatorShelfItems; }, [operatorShelfItems]);
+  useEffect(() => { operatorShelfOpenRef.current = operatorShelfOpen; }, [operatorShelfOpen]);
+  useEffect(() => { armedVoiceTargetRef.current = armedVoiceTarget; }, [armedVoiceTarget]);
+  useEffect(() => { spotlightRef.current = spotlight; }, [spotlight]);
+  useEffect(() => { timelineEventsRef.current = timelineEvents; }, [timelineEvents]);
+  useEffect(() => { gestureSequencesRef.current = effectiveGestureSequences; }, [effectiveGestureSequences]);
   useEffect(() => { sceneSoloRef.current = sceneSolo; }, [sceneSolo]);
   useEffect(() => { liveLayerIdsRef.current = liveLayerIds; }, [liveLayerIds]);
   useEffect(() => { activeLayerIdRef.current = activeLayerId; }, [activeLayerId]);
+  useEffect(() => {
+    directorQueueRef.current = directorQueue;
+    const nextCursor = directorCueIndex(directorQueue, activeLayerIdRef.current, directorCursorRef.current);
+    directorCursorRef.current = nextCursor;
+    setDirectorCursor((current) => current === nextCursor ? current : nextCursor);
+  }, [directorQueue]);
+  useEffect(() => { directorFocusedAssetIdRef.current = directorFocusedAssetId; }, [directorFocusedAssetId]);
   useEffect(() => { sceneMemberTargetIdRef.current = sceneMemberTargetId; }, [sceneMemberTargetId]);
   useEffect(() => {
     if (sceneMemberTargetId && (!activeScene || !activeScene.memberIds.includes(sceneMemberTargetId))) {
       sceneMemberTargetIdRef.current = null;
+      sceneMemberMissSinceRef.current = null;
       setSceneMemberTargetId(null);
     }
   }, [activeScene, sceneMemberTargetId]);
   useEffect(() => {
     if (selectedSceneMemberId && (!activeScene || !activeScene.memberIds.includes(selectedSceneMemberId))) setSelectedSceneMemberId(null);
   }, [activeScene, selectedSceneMemberId]);
-  useEffect(() => { activatedAtRef.current = activatedAt; }, [activatedAt]);
   useEffect(() => { studioReadyRef.current = studioReady; }, [studioReady]);
   useEffect(() => { recordingRef.current = isRecording; }, [isRecording]);
   useEffect(() => { projectIdRef.current = projectId; }, [projectId]);
@@ -676,7 +1250,18 @@ export default function App() {
   useEffect(() => { grantedRef.current = granted; }, [granted]);
   useEffect(() => { screenSettingsRef.current = screenSettings; }, [screenSettings]);
   useEffect(() => { screenOverlayRef.current = screenOverlay; }, [screenOverlay]);
+  useEffect(() => {
+    if (!studioReadyRef.current || !liveLayerIdsRef.current.length) return;
+    const nextStack = enforceBudgetForStack(liveLayerIdsRef.current);
+    liveLayerIdsRef.current = nextStack;
+    setLiveLayerIds(nextStack);
+    if (activeLayerIdRef.current && !nextStack.includes(activeLayerIdRef.current)) {
+      activeLayerIdRef.current = nextStack.at(-1) ?? null;
+      setActiveLayerId(activeLayerIdRef.current);
+    }
+  }, [screenOverlay.visible, screenSettings]);
   useEffect(() => { qualityRef.current = qualityId; }, [qualityId]);
+  useEffect(() => { compositionStatsRef.current = compositionStats; }, [compositionStats]);
   useEffect(() => { aspectRef.current = aspectId; }, [aspectId]);
   useEffect(() => { mirrorCameraRef.current = mirrorCamera; }, [mirrorCamera]);
   useEffect(() => { cameraFrameRef.current = cameraFrame; }, [cameraFrame]);
@@ -685,10 +1270,10 @@ export default function App() {
   useEffect(() => {
     if (!finishTake || !captionSegments.length || diagnostics || captionBusy) return;
     const timer = window.setTimeout(() => {
-      void saveCaptionDocument({ takeId: finishTake.id, segments: captionSegments, style: normalizeCaptionStyle(captionStyle), updatedAt: Date.now() });
+      void saveCaptionDocument({ takeId: finishTake.id, segments: captionSegments, style: normalizeCaptionStyle(captionStyle), wordCues: wordAnimationCues, updatedAt: Date.now() });
     }, 300);
     return () => window.clearTimeout(timer);
-  }, [captionBusy, captionSegments, captionStyle, diagnostics, finishTake]);
+  }, [captionBusy, captionSegments, captionStyle, diagnostics, finishTake, wordAnimationCues]);
   useEffect(() => {
     const merged = new Map(takeLibraryRef.current.map((take) => [take.id, take]));
     recordings.forEach((take) => merged.set(take.id, take));
@@ -698,9 +1283,6 @@ export default function App() {
   useEffect(() => {
     manipulationTrackerRef.current.configure({ ...DEFAULT_MANIPULATION, armMs: palmHoldMs });
   }, [palmHoldMs]);
-  useEffect(() => {
-    if (manipulation.mode !== "dragging") setCameraBorderSnap(null);
-  }, [manipulation.mode]);
   useEffect(() => {
     const canvas = captionPreviewCanvasRef.current;
     if (!canvas || !finishTake) return;
@@ -715,6 +1297,65 @@ export default function App() {
     if (captionEnabled && !captionPreviewRendered) drawCaption(context, width, height, captionPreviewSegment, captionStyle);
   }, [captionEnabled, captionPreviewRendered, captionPreviewSegment, captionStyle, finishTake]);
 
+  const rememberTransientAssetLayout = useCallback((assetId: string) => {
+    if (transientAssetLayoutsRef.current.has(assetId)) return;
+    const asset = assetsRef.current.find((item) => item.id === assetId);
+    if (!asset) return;
+    transientAssetLayoutsRef.current.set(assetId, {
+      placement: asset.placement,
+      size: asset.size,
+      transform: asset.transform,
+      cameraReflow: asset.cameraReflow
+    });
+  }, []);
+
+  const rememberTransientSceneLayout = useCallback((sceneId: string) => {
+    if (transientSceneLayoutsRef.current.has(sceneId)) return;
+    const scene = scenesRef.current.find((item) => item.id === sceneId);
+    if (!scene) return;
+    transientSceneLayoutsRef.current.set(sceneId, {
+      placement: scene.placement,
+      size: scene.size,
+      transform: scene.transform,
+      memberTransforms: scene.memberTransforms,
+      memberOrder: scene.memberOrder
+    });
+  }, []);
+
+  const restoreTransientAssetLayout = useCallback((assetId: string) => {
+    const saved = transientAssetLayoutsRef.current.get(assetId);
+    if (!saved) return;
+    transientAssetLayoutsRef.current.delete(assetId);
+    const next = assetsRef.current.map((asset) => asset.id === assetId ? { ...asset, ...saved } : asset);
+    assetsRef.current = next;
+    setAssets(next);
+    if (directorFocusedAssetIdRef.current === assetId) {
+      directorFocusedAssetIdRef.current = null;
+      setDirectorFocusedAssetId(null);
+    }
+  }, []);
+
+  const restoreTransientSceneLayout = useCallback((sceneId: string) => {
+    const saved = transientSceneLayoutsRef.current.get(sceneId);
+    if (saved) {
+      transientSceneLayoutsRef.current.delete(sceneId);
+      const next = scenesRef.current.map((scene) => scene.id === sceneId ? { ...scene, ...saved } : scene);
+      scenesRef.current = next;
+      setScenes(next);
+    }
+    const nextSolo = { ...sceneSoloRef.current };
+    delete nextSolo[sceneId];
+    sceneSoloRef.current = nextSolo;
+    setSceneSolo(nextSolo);
+  }, []);
+
+  const restoreTransientLayer = useCallback((layerId: string) => {
+    const layer = resolveLayer(layerId, assetsRef.current, scenesRef.current);
+    if (!layer) return;
+    if (layer.kind === "asset") restoreTransientAssetLayout(layer.asset.id);
+    else restoreTransientSceneLayout(layer.scene.id);
+  }, [restoreTransientAssetLayout, restoreTransientSceneLayout]);
+
   const commitAssetUpdates = useCallback((assetId: string, updates: Partial<StudioAsset>) => {
     if (assetId === SCREEN_OVERLAY_ID) {
       const current = screenOverlayRef.current;
@@ -722,22 +1363,28 @@ export default function App() {
         ...current,
         ...(updates.placement ? { placement: updates.placement } : {}),
         ...(updates.size ? { size: updates.size } : {}),
-        ...("transform" in updates ? { transform: updates.transform } : {})
+        ...("transform" in updates ? { transform: updates.transform } : {}),
+        ...(updates.entranceAnimation ? { entranceAnimation: updates.entranceAnimation } : {}),
+        ...(updates.cueSound ? { cueSound: updates.cueSound } : {}),
+        ...(typeof updates.cueVolume === "number" ? { cueVolume: updates.cueVolume } : {})
       };
       screenOverlayRef.current = next;
       setScreenOverlay(next);
       return;
     }
+    if ("transform" in updates && liveLayerIdsRef.current.includes(assetId)) rememberTransientAssetLayout(assetId);
     const next = assetsRef.current.map((asset) => asset.id === assetId ? { ...asset, ...updates } : asset);
     assetsRef.current = next;
     setAssets(next);
-  }, []);
+  }, [rememberTransientAssetLayout]);
 
   const commitSceneUpdates = useCallback((sceneId: string, updates: Partial<StudioScene>) => {
+    if (("transform" in updates || "memberTransforms" in updates || "memberOrder" in updates)
+      && liveLayerIdsRef.current.includes(sceneLayerId(sceneId))) rememberTransientSceneLayout(sceneId);
     const next = scenesRef.current.map((scene) => scene.id === sceneId ? { ...scene, ...updates } : scene);
     scenesRef.current = next;
     setScenes(next);
-  }, []);
+  }, [rememberTransientSceneLayout]);
 
   const beginPointerEdit = (event: ReactPointerEvent<HTMLElement>, mode: "drag" | "scale") => {
     const editGeometry = activeSceneMemberEditorGeometry ?? activeGeometry;
@@ -759,13 +1406,13 @@ export default function App() {
       stageWidth: bounds.width,
       stageHeight: bounds.height,
       base: editGeometry.base,
+      bounds: activeLayer.kind === "asset" ? activeGeometry?.bounds : undefined,
       initial,
       layerId: activeLayer.id,
       sceneMemberId: activeLayer.kind === "scene" && activeSceneMemberEditorGeometry ? selectedSceneMemberId ?? undefined : undefined,
       sceneGroupRect: activeLayer.kind === "scene" && activeSceneMemberEditorGeometry ? activeSceneMemberEditorGeometry.groupRect : undefined,
       moved: false
     };
-    setSceneTemplateSnapped(false);
     setManipulation({ mode: mode === "drag" ? "dragging" : "scaling", progress: 1 });
     event.preventDefault();
   };
@@ -779,41 +1426,25 @@ export default function App() {
     const candidate = session.mode === "drag"
       ? { ...session.initial, x: session.initial.x + dx, y: session.initial.y + dy }
       : { ...session.initial, scale: session.initial.scale + (dx + dy) * 1.25 };
-    const constrained = constrainAssetTransform(outputSize.width, outputSize.height, session.base, candidate);
-    const borderResult = session.mode === "drag"
-      ? snapTransformToCameraBorder(
-          outputSize.width,
-          outputSize.height,
-          session.base,
-          constrained,
-          cameraFrameViewport(outputSize.width, outputSize.height, cameraFrameRef.current)
-        )
-      : { transform: constrained, target: null };
-    const transform = borderResult.transform;
-    setCameraBorderSnap((current) => current === borderResult.target ? current : borderResult.target);
+    const transform = constrainAssetTransform(outputSize.width, outputSize.height, session.base, candidate, session.bounds);
     const layer = session.layerId === SCREEN_OVERLAY_ID && screenSettingsRef.current
       ? { id: SCREEN_OVERLAY_ID, kind: "asset" as const, asset: screenOverlayAsset(screenSettingsRef.current, screenOverlayRef.current) }
       : resolveLayer(session.layerId, assetsRef.current, scenesRef.current);
     if (layer?.kind === "asset") {
-      setSceneTemplateSnapped(false);
       commitAssetUpdates(layer.asset.id, { transform });
     }
     if (layer?.kind === "scene") {
-      const snappedScale = session.mode === "scale" ? snapScaleToTemplate(transform.scale) : transform.scale;
-      const templateSnapped = session.mode === "scale" && snappedScale === 1 && Math.abs(transform.scale - 1) > 1e-9;
-      setSceneTemplateSnapped(templateSnapped);
-      const snappedTransform = { ...transform, scale: snappedScale };
       if (session.sceneMemberId && session.sceneGroupRect) {
         const order = sceneMemberDrawOrder(layer.scene).filter((id) => id !== session.sceneMemberId);
         order.push(session.sceneMemberId);
         commitSceneUpdates(layer.scene.id, {
           memberTransforms: {
             ...layer.scene.memberTransforms,
-            [session.sceneMemberId]: sceneMemberRelativeTransform(outputSize.width, outputSize.height, session.sceneGroupRect, snappedTransform)
+            [session.sceneMemberId]: sceneMemberRelativeTransform(outputSize.width, outputSize.height, session.sceneGroupRect, transform)
           },
           memberOrder: order
         });
-      } else commitSceneUpdates(layer.scene.id, { transform: snappedTransform });
+      } else commitSceneUpdates(layer.scene.id, { transform });
     }
     event.preventDefault();
   };
@@ -824,53 +1455,82 @@ export default function App() {
     pointerEditRef.current = null;
     if (session.moved) suppressStageClickUntilRef.current = performance.now() + 160;
     setManipulation({ mode: "idle", progress: 0 });
-    if (session.mode === "scale") {
-      const layer = session.layerId === SCREEN_OVERLAY_ID && screenSettingsRef.current
-        ? { id: SCREEN_OVERLAY_ID, kind: "asset" as const, asset: screenOverlayAsset(screenSettingsRef.current, screenOverlayRef.current) }
-        : resolveLayer(session.layerId, assetsRef.current, scenesRef.current);
-      if (layer?.kind === "asset") {
-        const rect = applyAssetTransform(outputSize.width, outputSize.height, session.base, layer.asset.transform);
-        if (snappedAssetSize(outputSize.width, outputSize.height, rect) === "full") commitAssetUpdates(layer.asset.id, { size: "full", transform: undefined });
-      } else if (layer?.kind === "scene" && !session.sceneMemberId) {
-        const rect = sceneDisplayRect(outputSize.width, outputSize.height, layer.scene);
-        if (snappedAssetSize(outputSize.width, outputSize.height, rect) === "full") commitSceneUpdates(layer.scene.id, { size: "full", transform: undefined });
-      }
-    }
-    setSceneTemplateSnapped(false);
   };
 
-  const sceneMemberAtStagePoint = (event: ReactMouseEvent<HTMLElement>) => {
-    if (!activeScene || !activeGeometry || !liveLayerIdsRef.current.includes(sceneLayerId(activeScene.id))) return null;
-    const bounds = outputCanvasRef.current?.getBoundingClientRect();
-    if (!bounds?.width || !bounds.height) return null;
+  const layerAtStagePoint = (event: ReactMouseEvent<HTMLElement>) => {
+    const canvas = outputCanvasRef.current;
+    const bounds = canvas?.getBoundingClientRect();
+    if (!canvas || !bounds?.width || !bounds.height) return null;
     const point = {
-      x: ((event.clientX - bounds.left) / bounds.width) * outputSize.width,
-      y: ((event.clientY - bounds.top) / bounds.height) * outputSize.height
+      x: ((event.clientX - bounds.left) / bounds.width) * canvas.width,
+      y: ((event.clientY - bounds.top) / bounds.height) * canvas.height
     };
-    const memberBases = sceneMemberContentRects(activeScene, activeGeometry.rect, assets, { images: imagesRef.current, videos: videosRef.current });
-    const memberRects = sceneMemberDisplayRects(activeScene, activeGeometry.rect, memberBases);
-    const rectById = new Map(activeScene.memberIds.map((id, index) => [id, memberRects[index]]));
-    const eligibleOrder = activeSceneSoloId ? [activeSceneSoloId] : sceneMemberDrawOrder(activeScene);
-    return [...eligibleOrder].reverse().find((id) => {
-      const rect = rectById.get(id);
-      return rect && point.x >= rect.x && point.x <= rect.x + rect.width && point.y >= rect.y && point.y <= rect.y + rect.height;
-    }) ?? null;
+    const currentStyleWindow = currentVideoStyleWindow();
+    const currentStyleAssets = currentStyleWindow.assets;
+    const focusedStyleAssetId = activeLayerIdRef.current && currentStyleAssets.some((asset) => asset.id === activeLayerIdRef.current)
+      ? activeLayerIdRef.current
+      : null;
+    const styleHit = assetDeckVisibleRef.current || focusedStyleAssetId
+      ? topmostStageHit(buildVideoStyleSlotCandidates(
+          canvas.width,
+          canvas.height,
+          videoStyleRef.current,
+          currentStyleAssets,
+          focusedStyleAssetId,
+          { offset: currentStyleWindow.offset, windowStart: currentStyleWindow.windowStart, total: currentStyleWindow.total }
+        ), point)
+      : null;
+    if (styleHit) return styleHit;
+    return topmostStageHit(buildStageHitCandidates(
+      canvas.width,
+      canvas.height,
+      liveLayerIdsRef.current,
+      assetsRef.current,
+      scenesRef.current,
+      imagesRef.current,
+      videosRef.current,
+      sceneSoloRef.current,
+      true,
+      mergedAssetIds(completedVideoIdsRef.current, budgetHiddenAssetIdsRef.current)
+    ), point);
   };
+
+  const focusStageLayer = useCallback((hit: StageHitCandidate, source: "mouse" | "palm" | "point" = "mouse") => {
+    if (hit.layerId === SCREEN_OVERLAY_ID) {
+      activeLayerIdRef.current = SCREEN_OVERLAY_ID;
+      setActiveLayerId(SCREEN_OVERLAY_ID);
+    } else {
+      const nextStack = activateLayer(liveLayerIdsRef.current, hit.layerId);
+      liveLayerIdsRef.current = nextStack;
+      activeLayerIdRef.current = hit.layerId;
+      setLiveLayerIds(nextStack);
+      setActiveLayerId(hit.layerId);
+    }
+    setSelectedSceneMemberId(source === "mouse" ? hit.sceneMemberId ?? null : null);
+    sceneMemberTargetIdRef.current = source === "palm" ? hit.sceneMemberId ?? null : null;
+    sceneMemberMissSinceRef.current = null;
+    setSceneMemberTargetId(sceneMemberTargetIdRef.current);
+    manipulationTrackerRef.current.reset();
+    if (source === "mouse") palmSignalTrackerRef.current.reset();
+    setManipulation({ mode: "idle", progress: 0 });
+  }, []);
 
   const handleStageClick = (event: ReactMouseEvent<HTMLElement>) => {
-    if (isRecording || isFinalizing || performance.now() < suppressStageClickUntilRef.current) return;
-    if (!activeScene) return;
-    setSelectedSceneMemberId(sceneMemberAtStagePoint(event));
+    if (isFinalizing || performance.now() < suppressStageClickUntilRef.current) return;
+    const hit = layerAtStagePoint(event);
+    const styleAsset = hit ? currentVideoStyleAssets().find((asset) => asset.id === hit.layerId) : undefined;
+    if (styleAsset) focusVideoStyleAssetRef.current(styleAsset);
+    else if (hit) focusStageLayer(hit);
+    else setSelectedSceneMemberId(null);
   };
 
   const handleStageDoubleClick = (event: ReactMouseEvent<HTMLElement>) => {
-    if (!activeScene || !activeGeometry || !liveLayerIdsRef.current.includes(sceneLayerId(activeScene.id))) return;
-    if (activeSceneSoloId) {
-      toggleSceneSolo(activeScene, activeSceneSoloId);
-      return;
-    }
-    const assetId = sceneMemberAtStagePoint(event);
-    if (assetId) toggleSceneSolo(activeScene, assetId);
+    const hit = layerAtStagePoint(event);
+    if (!hit?.sceneMemberId) return;
+    const layer = resolveLayer(hit.layerId, assetsRef.current, scenesRef.current);
+    if (layer?.kind !== "scene") return;
+    focusStageLayer(hit);
+    toggleSceneSolo(layer.scene, sceneSoloRef.current[layer.scene.id] ?? hit.sceneMemberId);
   };
 
   const ensureAudioMixer = useCallback(async () => {
@@ -885,6 +1545,7 @@ export default function App() {
         video.muted = false;
         connectVideoAudio(mixer, id, video, Boolean(asset?.includeAudio));
       });
+      widgetAudioRef.current.forEach((audio, id) => connectVideoAudio(mixer, `widget:${id}`, audio, true, true));
     }
     return mixer;
   }, []);
@@ -898,10 +1559,33 @@ export default function App() {
     });
     imagesRef.current.clear();
     videosRef.current.clear();
+    completedVideoIdsRef.current = new Set();
+    completedVideoVersionRef.current += 1;
+    budgetHiddenAssetIdsRef.current = new Set();
+    budgetHiddenVersionRef.current += 1;
+    pointFocusTrackerRef.current.reset();
+    setPointFocus(null);
+    setLiveBudgetNotice(null);
     liveLayerIdsRef.current = [];
     activeLayerIdRef.current = null;
+    layerActivationTimesRef.current = {};
+    cameraReflowControllerRef.current.reset();
+    cameraReflowFrameRef.current = { x: 0, width: 1, target: null, transitioning: false };
+    gestureSequenceCursorRef.current = {};
+    directorQueueRef.current = [];
+    directorCursorRef.current = 0;
+    directorFocusedAssetIdRef.current = null;
+    palmRestoreRef.current = { since: 0, latched: false };
+    transientAssetLayoutsRef.current.clear();
+    transientSceneLayoutsRef.current.clear();
+    setActiveGestureCue(null);
+    setDirectorCursor(0);
+    setDirectorFocusedAssetId(null);
     setLiveLayerIds([]);
     setActiveLayerId(null);
+    intentEngineRef.current.reset();
+    intentQueueRef.current = [];
+    setIntentQueue([]);
   }, []);
 
   const materializeProjectAssets = useCallback(async (snapshot: StudioProjectSnapshot) => {
@@ -911,9 +1595,12 @@ export default function App() {
       const legacyBackground = (stored as StudioAsset & { background?: unknown }).background;
       const asset: StudioAsset = {
         ...stored,
-        gesture: (stored.gesture as string | undefined) === "palm" ? undefined : stored.gesture,
+        gesture: (stored.gesture as string | undefined) === "palm" || stored.gesture === "one" ? undefined : stored.gesture,
         entranceAnimation: stored.entranceAnimation ?? "fade",
-        cueSound: stored.cueSound ?? "none",
+        motionEffect: stored.motionEffect ?? (stored.entranceAnimation === "float" ? "float" : "none"),
+        cameraReflow: normalizeCameraReflow(stored.cameraReflow),
+        videoPlayback: stored.kind === "video" ? "once" : undefined,
+        cueSound: normalizeCueSound(stored.cueSound),
         cueVolume: stored.cueVolume ?? 0.65,
         stageBackground: normalizeStageBackground(stored.stageBackground ?? legacyBackground),
         stageBackgroundColor: stored.stageBackgroundColor ?? "#111111",
@@ -927,8 +1614,8 @@ export default function App() {
           objectUrlsRef.current.push(sourceUrl);
           asset.sourceUrl = sourceUrl;
           if (asset.kind === "image") {
-            const image = new Image();
-            image.src = sourceUrl;
+            const image = await compositionImageFromBlob(blob, sourceUrl, (url) => objectUrlsRef.current.push(url));
+            asset.sourceUrl = image.src;
             imagesRef.current.set(asset.id, image);
           } else {
             const video = document.createElement("video");
@@ -959,21 +1646,52 @@ export default function App() {
     setProjectHydrated(false);
     let restoredAssets = await materializeProjectAssets(snapshot);
     const availableIds = new Set(restoredAssets.map((asset) => asset.id));
-    const restoredScenes = (snapshot.scenes ?? []).map((scene) => ({
-      ...scene,
-      memberIds: scene.memberIds.filter((id) => availableIds.has(id)),
-      placement: scene.placement ?? "center" as const,
-      size: scene.size ?? "full" as const,
-      stageBackground: normalizeStageBackground(scene.stageBackground),
-      stageBackgroundColor: scene.stageBackgroundColor ?? "#111111",
-      entranceAnimation: scene.entranceAnimation ?? "fade" as const,
-      cueSound: scene.cueSound ?? "none" as const,
-      cueVolume: scene.cueVolume ?? 0.65
-    })).filter((scene) => scene.memberIds.length >= 2);
+    let limitedRestoredScenes = 0;
+    const restoredScenes = (snapshot.scenes ?? []).map((scene) => {
+      const availableMembers = scene.memberIds.filter((id) => availableIds.has(id));
+      const memberIds = constrainedSceneMemberIds(availableMembers, restoredAssets);
+      if (memberIds.length !== availableMembers.length) limitedRestoredScenes += 1;
+      return {
+        ...scene,
+        gesture: scene.gesture === "one" ? undefined : scene.gesture,
+        memberIds,
+        placement: scene.placement ?? "center" as const,
+        size: scene.size ?? "full" as const,
+        revealSide: normalizeSceneRevealSide(scene.revealSide),
+        revealMotion: normalizeSceneRevealMotion(scene.revealMotion),
+        stageBackground: normalizeStageBackground(scene.stageBackground),
+        stageBackgroundColor: scene.stageBackgroundColor ?? "#111111",
+        entranceAnimation: scene.entranceAnimation ?? "fade" as const,
+        motionEffect: scene.motionEffect ?? (scene.entranceAnimation === "float" ? "float" as const : "none" as const),
+        cueSound: normalizeCueSound(scene.cueSound),
+        cueVolume: scene.cueVolume ?? 0.65,
+        memberFocusModes: Object.fromEntries(memberIds.map((id): [string, SceneMemberFocusMode] => {
+          const mode = scene.memberFocusModes?.[id];
+          return [id, mode === "off" || mode === "full" ? mode : "medium"];
+        }))
+      };
+    }).filter((scene) => scene.memberIds.length >= 2);
     const sceneMemberIds = new Set(restoredScenes.flatMap((scene) => scene.memberIds));
     restoredAssets = restoredAssets.map((asset) => sceneMemberIds.has(asset.id) ? { ...asset, gesture: undefined } : asset);
+    const restoredConcepts = reconcileConcepts(snapshot.concepts ?? [], restoredAssets, restoredScenes);
+    const restoredWidgets = (snapshot.widgets ?? []).filter((widget) => widget.kind !== "live").map((widget): CanvasWidget => ({
+      ...widget,
+      visible: widget.visible !== false,
+      volume: widget.kind === "vinyl" ? Math.min(1, Math.max(0, widget.volume ?? .8)) : widget.volume,
+      assetIds: widget.kind === "orbit" ? (widget.assetIds ?? []).filter((id) => restoredAssets.some((asset) => asset.id === id)) : widget.assetIds,
+      sceneIds: widget.kind === "orbit" ? (widget.sceneIds ?? []).filter((id) => restoredScenes.some((scene) => scene.id === id)) : widget.sceneIds,
+      actionAssetId: widget.actionAssetId && restoredAssets.some((asset) => asset.id === widget.actionAssetId) ? widget.actionAssetId : undefined,
+      active: false,
+      open: false,
+      orbitOffset: 0
+    }));
     assetsRef.current = restoredAssets;
     scenesRef.current = restoredScenes;
+    widgetsRef.current = restoredWidgets;
+    conceptsRef.current = restoredConcepts;
+    const restoredGestureSequences = normalizeGestureSequences(restoredAssets, restoredScenes, snapshot.gestureSequences ?? {});
+    gestureSequencesRef.current = restoredGestureSequences;
+    gestureSequenceCursorRef.current = {};
     projectIdRef.current = snapshot.id;
     selectedCameraRef.current = snapshot.selectedCameraId || selectedCameraRef.current;
     selectedMicrophoneRef.current = snapshot.selectedMicrophoneId || "none";
@@ -987,6 +1705,10 @@ export default function App() {
     setProjectName(snapshot.name);
     setAssets(restoredAssets);
     setScenes(restoredScenes);
+    setWidgets(restoredWidgets);
+    setConcepts(restoredConcepts);
+    setGestureSequences(restoredGestureSequences);
+    setActiveGestureCue(null);
     setSelectedCameraId(selectedCameraRef.current);
     setSelectedMicrophoneId(selectedMicrophoneRef.current);
     setQualityId(qualityRef.current);
@@ -995,11 +1717,10 @@ export default function App() {
     setCameraFrame(restoredCameraFrame);
     setMonitorMediaAudio(monitorMediaAudioRef.current);
     const savedTiming = snapshot.timing || DEFAULT_TIMING;
-    const restoredHoldMs = savedTiming.holdMs === 550 ? DEFAULT_TIMING.holdMs : savedTiming.holdMs;
+    const restoredHoldMs = savedTiming.holdMs === 550 || savedTiming.holdMs === 350 || savedTiming.holdMs === 180 || savedTiming.holdMs === 150 ? DEFAULT_TIMING.holdMs : savedTiming.holdMs;
     setTiming({
       holdMs: Number.isFinite(restoredHoldMs) ? Math.max(MIN_GESTURE_HOLD_MS, restoredHoldMs) : DEFAULT_TIMING.holdMs,
-      cooldownMs: savedTiming.cooldownMs === 900 ? DEFAULT_TIMING.cooldownMs : savedTiming.cooldownMs,
-      rearmMs: !savedTiming.rearmMs || savedTiming.rearmMs === 220 ? DEFAULT_TIMING.rearmMs : savedTiming.rearmMs
+      cooldownMs: savedTiming.cooldownMs === 900 || savedTiming.cooldownMs === 700 ? DEFAULT_TIMING.cooldownMs : savedTiming.cooldownMs
     });
     setPalmHoldMs(snapshot.palmHoldMs || DEFAULT_MANIPULATION.armMs);
     const source = qualityPreset(qualityRef.current);
@@ -1011,6 +1732,9 @@ export default function App() {
     setOutputSize(dimensions);
     setProjectHydrated(true);
     setProjectSaveState("saved");
+    if (limitedRestoredScenes) {
+      setErrorMessage(`${limitedRestoredScenes} older scene${limitedRestoredScenes === 1 ? " was" : "s were"} limited to five assets and two videos for smooth recording.`);
+    }
     await setCurrentProjectId(snapshot.id);
   }, [materializeProjectAssets]);
 
@@ -1093,6 +1817,9 @@ export default function App() {
       updatedAt: Date.now(),
       assets,
       scenes,
+      widgets,
+      concepts,
+      gestureSequences: effectiveGestureSequences,
       selectedCameraId,
       selectedMicrophoneId,
       qualityId,
@@ -1120,7 +1847,7 @@ export default function App() {
     return () => {
       if (autosaveTimerRef.current !== null) window.clearTimeout(autosaveTimerRef.current);
     };
-  }, [aspectId, assets, cameraFrame, diagnostics, mirrorCamera, monitorMediaAudio, palmHoldMs, projectHydrated, projectId, projectName, qualityId, scenes, selectedCameraId, selectedMicrophoneId, timing]);
+  }, [aspectId, assets, cameraFrame, concepts, diagnostics, effectiveGestureSequences, mirrorCamera, monitorMediaAudio, palmHoldMs, projectHydrated, projectId, projectName, qualityId, scenes, selectedCameraId, selectedMicrophoneId, timing, widgets]);
 
   const refreshCameras = useCallback(async () => {
     const list = await provider.enumerateCameras();
@@ -1216,7 +1943,7 @@ export default function App() {
       await refreshCameras();
       if (studioReadyRef.current) {
         setPhase("ready");
-        setPhaseMessage("Studio ready — hold an assigned gesture");
+        setPhaseMessage("Studio ready — point at a visual or use its gesture");
       }
     } catch (error) {
       if (!previous) {
@@ -1323,30 +2050,35 @@ export default function App() {
     if (notify && studioReadyRef.current) setPhaseMessage("Screen sharing stopped — camera remains live");
   }, []);
 
-  const updateScreenOverlay = (updates: Partial<ScreenOverlaySettings>) => {
-    if (recordingRef.current) return;
-    const next = { ...screenOverlayRef.current, ...updates };
-    screenOverlayRef.current = next;
-    setScreenOverlay(next);
-    if (!next.visible && activeLayerIdRef.current === SCREEN_OVERLAY_ID) {
-      const fallback = liveLayerIdsRef.current.at(-1) ?? null;
-      activeLayerIdRef.current = fallback;
-      setActiveLayerId(fallback);
+  const selectScreenOverlay = useCallback(() => {
+    if (!screenSettingsRef.current) return;
+    if (screenSettingsRef.current.recursionGuard) {
+      setPhaseMessage("Rii-Flow is already the recording canvas — self-share preview hidden to prevent an infinite mirror");
+      return;
     }
-  };
-
-  const selectScreenOverlay = () => {
-    if (!screenSettingsRef.current || recordingRef.current) return;
-    if (!screenOverlayRef.current.visible) updateScreenOverlay({ visible: true });
+    if (!screenOverlayRef.current.visible) {
+      screenOverlayRef.current = { ...screenOverlayRef.current, visible: true };
+      setScreenOverlay(screenOverlayRef.current);
+    }
+    const now = performance.now();
+    layerActivationTimesRef.current = { ...layerActivationTimesRef.current, [SCREEN_OVERLAY_ID]: now };
+    playCueSound(audioMixerRef.current, screenOverlayRef.current.cueSound, screenOverlayRef.current.cueVolume);
     activeLayerIdRef.current = SCREEN_OVERLAY_ID;
     setActiveLayerId(SCREEN_OVERLAY_ID);
     setSelectedSceneMemberId(null);
     sceneMemberTargetIdRef.current = null;
+    sceneMemberMissSinceRef.current = null;
     setSceneMemberTargetId(null);
     manipulationTrackerRef.current.reset();
     palmSignalTrackerRef.current.reset();
+    circleMorphTrackerRef.current.reset();
+    assetMorphExitRef.current = null;
+    morphFocusLockUntilRef.current = 0;
+    manipulationGuardUntilRef.current = now + 420;
     setManipulation({ mode: "idle", progress: 0 });
-  };
+    setMorphGestureProgress(0);
+    setMorphExitAssetId(null);
+  }, []);
 
   const startScreenShare = async () => {
     if (!studioReadyRef.current || recordingRef.current || screenPhase === "permission") return;
@@ -1390,6 +2122,13 @@ export default function App() {
       const displaySurface = settings.displaySurface === "browser" || settings.displaySurface === "monitor" || settings.displaySurface === "window"
         ? settings.displaySurface
         : undefined;
+      const captureLabel = track.label.toLowerCase();
+      const pageTitle = document.title.trim().toLowerCase();
+      const captureHandle = (track as CaptureHandleTrack).getCaptureHandle?.();
+      const identifiedSelfCapture = captureHandle?.handle === RII_FLOW_CAPTURE_HANDLE;
+      const selfTabLabel = captureLabel.includes("rii-flow") || captureLabel.includes("rii flow") || captureLabel.includes("127.0.0.1") || captureLabel.includes("localhost") || captureLabel.includes("this tab") || captureLabel.includes("current tab");
+      const capturesThisTab = displaySurface === "browser" && (identifiedSelfCapture || selfTabLabel || Boolean(pageTitle && captureLabel.includes(pageTitle)) || captureLabel.length === 0);
+      const recursionGuard = identifiedSelfCapture || capturesThisTab;
       const capture: ScreenCaptureSettings = {
         width: settings.width || video.videoWidth || preset.width,
         height: settings.height || video.videoHeight || preset.height,
@@ -1404,19 +2143,26 @@ export default function App() {
           ? "Shared display"
           : "Shared screen",
         displaySurface,
-        hasAudio: nextStream.getAudioTracks().length > 0
+        hasAudio: nextStream.getAudioTracks().length > 0,
+        recursionGuard
       };
       const mixer = await ensureAudioMixer();
-      connectScreenAudio(mixer, nextStream);
+      connectScreenAudio(mixer, recursionGuard ? null : nextStream);
       screenStreamRef.current = nextStream;
       screenSettingsRef.current = capture;
       setScreenSettings(capture);
-      screenOverlayRef.current = { ...screenOverlayRef.current, visible: true };
+      screenOverlayRef.current = { ...screenOverlayRef.current, visible: false };
       setScreenOverlay(screenOverlayRef.current);
-      activeLayerIdRef.current = SCREEN_OVERLAY_ID;
-      setActiveLayerId(SCREEN_OVERLAY_ID);
+      assetDeckVisibleRef.current = true;
+      setAssetDeckVisible(true);
+      if (activeLayerIdRef.current === SCREEN_OVERLAY_ID) {
+        activeLayerIdRef.current = null;
+        setActiveLayerId(null);
+      }
       setScreenPhase("ready");
-      setPhaseMessage(capture.hasAudio ? "Screen overlay and shared audio are live" : "Screen overlay is live — microphone audio remains active");
+      setPhaseMessage(recursionGuard
+        ? "Rii-Flow selected — self-share is blocked from the canvas to prevent an infinite mirror"
+        : capture.hasAudio ? "Screen added to the media deck with shared audio" : "Screen added to the media deck — microphone audio remains active");
 
       track.addEventListener("ended", () => {
         if (screenStreamRef.current === nextStream) endScreenShare(nextStream, true);
@@ -1478,14 +2224,100 @@ export default function App() {
   }, [provider, refreshMicrophones]);
 
   useEffect(() => {
-    if (!diagnostics || !["gesture", "palm", "double", "manipulation", "corner-snap", "stack", "scene", "scene-manipulation", "workspace"].includes(diagnosticScenario ?? "")) return;
-    if (diagnosticScenario === "scene" || diagnosticScenario === "scene-manipulation" || diagnosticScenario === "workspace") {
+    if (!diagnostics || !["setup", "import-flow", "intent-pinch", "intent-sequence", "streaming-speech", "streaming-multi", "streaming-sequence", "voice-command", "voice-palm-hold", "shelf-confirm", "director", "director-back", "style-focus", "morph", "gesture", "palm", "double", "manipulation", "stack", "stack-manipulation", "sequence", "scene", "scene-reveal", "scene-video-audio", "scene-limit", "scene-manipulation", "scene-selection", "scene-focus", "workspace"].includes(diagnosticScenario ?? "")) return;
+    if (diagnosticScenario === "import-flow") {
+      let cancelled = false;
+      void (async () => {
+        const fixtures = [
+          ["diagnostic-import-dashboard", "Dashboard.svg", "/diagnostics/Dashboard.svg"],
+          ["diagnostic-import-product", "Product.svg", "/diagnostics/Product.svg"],
+          ["diagnostic-import-proof", "Proof.svg", "/diagnostics/Proof.svg"]
+        ] as const;
+        const samples = await Promise.all(fixtures.map(async ([id, name, url], index): Promise<StudioAsset> => {
+          const response = await fetch(url);
+          if (!response.ok) throw new Error(`Diagnostic import failed (${response.status}).`);
+          const blob = await response.blob();
+          const sourceUrl = URL.createObjectURL(blob);
+          objectUrlsRef.current.push(sourceUrl);
+          const image = await compositionImageFromBlob(blob, sourceUrl, (nextUrl) => objectUrlsRef.current.push(nextUrl));
+          imagesRef.current.set(id, image);
+          return {
+            id,
+            name,
+            kind: "image",
+            sourceUrl: image.src,
+            placement: index % 2 === 0 ? "right" : "left",
+            size: "medium",
+            dataView: "table",
+            stageBackground: "camera",
+            stageBackgroundColor: "#111111",
+            entranceAnimation: "slide",
+            motionEffect: "none",
+            cameraReflow: "make-room",
+            cueSound: "none",
+            cueVolume: 0.65
+          };
+        }));
+        if (cancelled) return;
+        assetsRef.current = samples;
+        scenesRef.current = [];
+        setAssets(samples);
+        setScenes([]);
+      })().catch((error) => setErrorMessage(error instanceof Error ? error.message : "Diagnostic import failed."));
+      return () => { cancelled = true; };
+    }
+    if (diagnosticScenario === "scene-limit") {
+      const samples: StudioAsset[] = Array.from({ length: 7 }, (_, index) => ({
+        id: `scene-limit-${index}`,
+        name: `${index < 3 ? "Video" : "Image"} ${index + 1}.${index < 3 ? "mp4" : "png"}`,
+        kind: index < 3 ? "video" as const : "image" as const,
+        sourceUrl: index < 3 ? undefined : diagnosticAsset(`IMAGE ${index - 2}`, ["#e8b35d", "#c8d9b0", "#9fcbd0", "#b8a7d9"][index - 3] ?? "#e8b35d"),
+        placement: "corner" as const,
+        size: "small" as const,
+        dataView: "table" as const
+      }));
+      samples.filter((sample) => sample.kind === "image").forEach((sample) => {
+        const image = new Image();
+        image.src = sample.sourceUrl ?? "";
+        imagesRef.current.set(sample.id, image);
+      });
+      assetsRef.current = samples;
+      scenesRef.current = [];
+      setAssets(samples);
+      setScenes([]);
+      return;
+    }
+    if (diagnosticScenario === "setup" || diagnosticScenario === "intent-pinch" || diagnosticScenario === "intent-sequence" || diagnosticScenario === "streaming-speech" || diagnosticScenario === "streaming-multi" || diagnosticScenario === "streaming-sequence" || diagnosticScenario === "voice-command" || diagnosticScenario === "voice-palm-hold" || diagnosticScenario === "shelf-confirm" || diagnosticScenario === "director" || diagnosticScenario === "director-back" || diagnosticScenario === "style-focus" || diagnosticScenario === "morph") {
+      const voiceDiagnostic = diagnosticScenario === "intent-pinch" || diagnosticScenario === "intent-sequence" || diagnosticScenario === "streaming-speech" || diagnosticScenario === "streaming-multi" || diagnosticScenario === "streaming-sequence" || diagnosticScenario === "voice-command" || diagnosticScenario === "voice-palm-hold" || diagnosticScenario === "shelf-confirm";
       const samples: StudioAsset[] = [
-        { id: "scene-member-a", name: "Portrait.png", kind: "image", sourceUrl: diagnosticAsset("PORTRAIT", "#e8b35d"), placement: "corner", size: "small", dataView: "table" },
+        { id: "director-a", name: diagnosticScenario === "setup" ? "Q3 dashboard.png" : voiceDiagnostic ? "The dashboard.png" : "The problem.png", triggerWord: diagnosticScenario === "setup" || voiceDiagnostic ? "dashboard" : "problem", kind: "image", sourceUrl: diagnosticAsset(diagnosticScenario === "setup" || voiceDiagnostic ? "DASHBOARD" : "THE PROBLEM", "#d9a76c"), placement: "right", size: "medium", dataView: "table", cameraReflow: "make-room", entranceAnimation: "slide" },
+        { id: "director-b", name: "The product.png", triggerWord: "product", kind: "image", sourceUrl: diagnosticAsset("THE PRODUCT", "#7e97e8"), placement: "left", size: "medium", dataView: "table", cameraReflow: "make-room", entranceAnimation: "slide" },
+        { id: "director-c", name: "The proof.png", triggerWord: "proof", kind: "image", sourceUrl: diagnosticAsset("THE PROOF", "#73c49a"), placement: "center", size: "medium", dataView: "table", cameraReflow: "overlay", entranceAnimation: "pop" }
+      ];
+      samples.forEach((sample) => {
+        const image = new Image();
+        image.src = sample.sourceUrl ?? "";
+        imagesRef.current.set(sample.id, image);
+      });
+      assetsRef.current = samples;
+      scenesRef.current = [];
+      setAssets(samples);
+      setScenes([]);
+      if (diagnosticScenario === "style-focus" || diagnosticScenario === "morph") {
+        videoStyleRef.current = "right-rail";
+        setVideoStyleId("right-rail");
+        mirrorCameraRef.current = false;
+        setMirrorCamera(false);
+      }
+      return;
+    }
+    if (diagnosticScenario === "scene" || diagnosticScenario === "scene-reveal" || diagnosticScenario === "scene-video-audio" || diagnosticScenario === "scene-manipulation" || diagnosticScenario === "scene-selection" || diagnosticScenario === "scene-focus" || diagnosticScenario === "workspace") {
+      const samples: StudioAsset[] = [
+        { id: "scene-member-a", name: diagnosticScenario === "scene-video-audio" ? "Intro.mp4" : "Portrait.png", kind: diagnosticScenario === "scene-video-audio" ? "video" : "image", sourceUrl: diagnosticScenario === "scene-video-audio" ? undefined : diagnosticAsset("PORTRAIT", "#e8b35d"), includeAudio: false, placement: "corner", size: "small", dataView: "table" },
         { id: "scene-member-b", name: "Product.png", kind: "image", sourceUrl: diagnosticAsset("PRODUCT", "#c8d9b0"), placement: "corner", size: "small", dataView: "table" },
         { id: "scene-member-c", name: "Detail.png", kind: "image", sourceUrl: diagnosticAsset("DETAIL", "#9fcbd0"), placement: "corner", size: "small", dataView: "table" }
       ];
-      samples.forEach((sample) => {
+      samples.filter((sample) => sample.kind === "image").forEach((sample) => {
         const image = new Image();
         image.src = sample.sourceUrl ?? "";
         imagesRef.current.set(sample.id, image);
@@ -1494,10 +2326,14 @@ export default function App() {
         id: "diagnostic-scene",
         name: "Product story",
         memberIds: samples.map((sample) => sample.id),
-        gesture: "one",
+        gesture: diagnosticScenario === "scene-focus" ? "two" : "one",
         placement: "center",
         size: "small",
-        layout: "grid"
+        layout: "grid",
+        revealSide: diagnosticScenario === "scene-reveal" ? "left" : "none",
+        revealMotion: "smooth",
+        stageBackground: diagnosticScenario === "scene-reveal" ? "cream" : "camera",
+        memberFocusModes: Object.fromEntries(samples.map((sample, index) => [sample.id, index === 1 ? "full" as const : "medium" as const]))
       };
       assetsRef.current = samples;
       scenesRef.current = [sampleScene];
@@ -1505,7 +2341,7 @@ export default function App() {
       setScenes([sampleScene]);
       return;
     }
-    if (diagnosticScenario === "stack") {
+    if (diagnosticScenario === "stack" || diagnosticScenario === "stack-manipulation" || diagnosticScenario === "sequence") {
       const samples: StudioAsset[] = [
         {
           id: "diagnostic-layer-one",
@@ -1522,7 +2358,7 @@ export default function App() {
           name: "Second overlay.png",
           kind: "image",
           sourceUrl: diagnosticAsset("SECOND LAYER", "#c8d9b0"),
-          gesture: "two",
+          gesture: diagnosticScenario === "sequence" ? "one" : "two",
           placement: "right",
           size: "small",
           dataView: "table"
@@ -1554,12 +2390,7 @@ export default function App() {
     };
     assetsRef.current = [sample];
     setAssets([sample]);
-    if (diagnosticScenario === "corner-snap") {
-      const diagnosticFrame = normalizeCameraFrame({ enabled: true, mode: "black", sizePercent: 10, customColor: "#3157d5" });
-      cameraFrameRef.current = diagnosticFrame;
-      setCameraFrame(diagnosticFrame);
-    }
-  }, [diagnosticScenario, diagnostics]);
+  }, [diagnosticScenario, diagnostics, projectHydrated]);
 
   useEffect(() => {
     if (!diagnostics || diagnosticScenario !== "takes") return;
@@ -1577,9 +2408,9 @@ export default function App() {
       frameRate: 60,
       bitrate: 24_000_000,
       mimeType: "video/mp4",
-      folderBacked: false,
+      folderBacked: index === 0,
       rating: index === 1 ? "favorite" : "neutral",
-      availability: "session"
+      availability: index === 0 ? "missing" : "session"
     })));
   }, [diagnosticScenario, diagnostics]);
 
@@ -1603,6 +2434,37 @@ export default function App() {
     setProjectName(diagnosticProjects[0].name);
     setRecordings(takesForProject(diagnosticTakes, diagnosticProjects[0].id));
   }, [diagnosticScenario, diagnostics]);
+
+  const clearArmedVoiceTarget = useCallback((message?: string) => {
+    if (voiceArmTimerRef.current !== null) window.clearTimeout(voiceArmTimerRef.current);
+    voiceArmTimerRef.current = null;
+    armedVoiceTargetRef.current = null;
+    setArmedVoiceTarget(null);
+    if (message) setPhaseMessage(message);
+  }, []);
+
+  const armVoiceTarget = useCallback((target: VoiceTriggerTarget, heardText: string, source: "voice" | "shelf" = "voice") => {
+    const now = performance.now();
+    const armedTarget: ArmedVoiceTarget = { ...target, heardText, source, armedAt: now, expiresAt: now + VOICE_ARM_TIMEOUT_MS };
+    if (voiceArmTimerRef.current !== null) window.clearTimeout(voiceArmTimerRef.current);
+    // Voice is the primary selector. If the fallback shelf happens to be open,
+    // dismiss it immediately so the next palm can only confirm this cue.
+    operatorShelfOpenRef.current = false;
+    setOperatorShelfOpen(false);
+    setOperatorShelfTargetId(null);
+    setOperatorShelfProgress(0);
+    operatorShelfPointTrackerRef.current.reset();
+    armedVoiceTargetRef.current = armedTarget;
+    setArmedVoiceTarget(armedTarget);
+    setPhaseMessage(`${target.name} ready — raise your palm to reveal`);
+    voiceArmTimerRef.current = window.setTimeout(() => {
+      if (armedVoiceTargetRef.current?.id !== target.id) return;
+      armedVoiceTargetRef.current = null;
+      setArmedVoiceTarget(null);
+      setPhaseMessage("Listening — say a visual's cue word");
+    }, VOICE_ARM_TIMEOUT_MS);
+  }, []);
+
 
   const initializeRecognizer = async () => {
     if (recognizerRef.current) return recognizerRef.current;
@@ -1636,20 +2498,44 @@ export default function App() {
     connectScreenAudio(audioMixerRef.current, null);
     void closeStudioAudioMixer(audioMixerRef.current);
     audioMixerRef.current = null;
+    if (confirmFeedbackTimerRef.current !== null) window.clearTimeout(confirmFeedbackTimerRef.current);
+    confirmFeedbackTimerRef.current = null;
+    setConfirmFeedback("");
+    clearArmedVoiceTarget();
+    palmCommandTrackerRef.current.reset();
+    shelfPointCarryoverRef.current = false;
+    operatorShelfPointTrackerRef.current.reset();
+    operatorShelfOpenRef.current = false;
+    setOperatorShelfOpen(false);
+    setOperatorShelfTargetId(null);
+    setOperatorShelfProgress(0);
+    spotlightRef.current = null;
+    spotlightRectRef.current = null;
+    setSpotlight(null);
     liveLayerIdsRef.current = [];
     activeLayerIdRef.current = null;
+    layerActivationTimesRef.current = {};
+    cameraReflowControllerRef.current.reset();
+    cameraReflowFrameRef.current = { x: 0, width: 1, target: null, transitioning: false };
+    gestureSequenceCursorRef.current = {};
     setLiveLayerIds([]);
     setActiveLayerId(null);
+    setActiveGestureCue(null);
     videosRef.current.forEach((overlay) => overlay.pause());
     gateRef.current.reset();
     stabilizerRef.current.reset();
     manipulationTrackerRef.current.reset();
     palmSignalTrackerRef.current.reset();
+    circleMorphTrackerRef.current.reset();
+    assetMorphExitRef.current = null;
+    morphFocusLockUntilRef.current = 0;
     sceneMemberTargetIdRef.current = null;
+    sceneMemberMissSinceRef.current = null;
     setSceneMemberTargetId(null);
     setSelectedSceneMemberId(null);
     setManipulation({ mode: "idle", progress: 0 });
-    setSceneTemplateSnapped(false);
+    setMorphGestureProgress(0);
+    setMorphExitAssetId(null);
     setDetected({ gesture: null, confidence: 0, source: "none" });
     setHoldProgress(0);
     setArmed(true);
@@ -1695,6 +2581,8 @@ export default function App() {
     gateRef.current.reset();
     stabilizerRef.current.reset();
     palmSignalTrackerRef.current.reset();
+    gestureSequenceCursorRef.current = {};
+    setActiveGestureCue(null);
     setPhase("permission");
     setPhaseMessage("Waiting for camera permission");
     const preset = qualityPreset(qualityRef.current);
@@ -1729,7 +2617,7 @@ export default function App() {
       studioReadyRef.current = true;
       setStudioReady(true);
       setPhase("ready");
-      setPhaseMessage("Studio ready — hold an assigned gesture");
+      setPhaseMessage("Studio ready — point at a visual or use its gesture");
       diagnosticSequenceStartRef.current = performance.now();
     } catch {
       if (studioSession !== studioSessionRef.current) {
@@ -1744,6 +2632,170 @@ export default function App() {
       studioReadyRef.current = false;
     }
   };
+
+  /* Desktop-only keyword recognition is intentionally excluded from the web
+     product. The preserved implementation lives in rii-flow-desktop.
+  useEffect(() => {
+    let cancelled = false;
+    const diagnosticTimers: number[] = [];
+    const previous = liveVoiceCaptureRef.current;
+    liveVoiceCaptureRef.current = null;
+    if (previous) void previous.stop();
+    browserSpeechCaptureRef.current?.stop();
+    browserSpeechCaptureRef.current = null;
+    voskSpeechCaptureRef.current?.stop();
+    voskSpeechCaptureRef.current = null;
+    voiceInferenceBusyRef.current = false;
+    pendingVoiceWindowRef.current = null;
+
+    if (!voiceCuesEnabled || !studioReady || finishTakeId || selectedMicrophoneId === "none" || !voiceTriggerTargets.length) {
+      setVoiceTriggerStatus("off");
+      setVoiceModelProgress(0);
+      setSpeechContextMode("off");
+      return () => { cancelled = true; };
+    }
+
+    const publishTranscript = (phrase: string) => {
+      const transcript = phrase.trim();
+      if (!transcript || cancelled) return;
+      setLastVoicePhrase(transcript);
+      studioEventsRef.current.emit("speech:context", { transcript, at: performance.now() });
+    };
+
+    let localStarting = false;
+    const startLocal = async () => {
+      if (cancelled || localStarting || liveVoiceCaptureRef.current) return;
+      localStarting = true;
+      const mixer = audioMixerRef.current;
+      if (!mixer?.microphoneSource) {
+        setVoiceTriggerStatus("off");
+        setSpeechContextMode("off");
+        return;
+      }
+      try {
+        setSpeechContextMode("local");
+        setVoiceTriggerStatus("loading");
+        setVoiceModelProgress(0);
+        await warmEnglishTranscriber((progress) => {
+          if (!cancelled) setVoiceModelProgress(Math.round(progress.percent));
+        });
+        if (cancelled) return;
+        setVoiceModelProgress(100);
+        setVoiceTriggerStatus("listening");
+        const transcribeWindow = (audio: CaptionAudio) => {
+          if (cancelled) return;
+          if (voiceInferenceBusyRef.current) {
+            // Never discard what the presenter said while the worker is busy.
+            // One latest window is enough because windows overlap by design.
+            pendingVoiceWindowRef.current = audio;
+            return;
+          }
+          voiceInferenceBusyRef.current = true;
+          setVoiceTriggerStatus("hearing");
+          void transcribeTriggerEnglish(audio)
+            .then(publishTranscript)
+            .catch((error) => {
+              if (cancelled) return;
+              console.warn("Local speech window failed", error);
+              setVoiceTriggerStatus("error");
+            })
+            .finally(() => {
+              voiceInferenceBusyRef.current = false;
+              if (cancelled) return;
+              setVoiceTriggerStatus("listening");
+              const pending = pendingVoiceWindowRef.current;
+              pendingVoiceWindowRef.current = null;
+              if (pending) transcribeWindow(pending);
+            });
+        };
+        liveVoiceCaptureRef.current = await startLiveVoiceCapture(mixer, transcribeWindow);
+        if (!liveVoiceCaptureRef.current && !cancelled) setVoiceTriggerStatus("off");
+      } catch (error) {
+        if (cancelled) return;
+        console.warn("Local speech model could not start", error);
+        setVoiceTriggerStatus("error");
+        setPhaseMessage("Speech recognition is unavailable. Check the microphone and restart Studio.");
+      } finally {
+        localStarting = false;
+      }
+    };
+
+    let voskStarting = false;
+    const startStreamingLocal = async () => {
+      if (cancelled || voskStarting || voskSpeechCaptureRef.current) return;
+      voskStarting = true;
+      try {
+        setSpeechContextMode("streaming-local");
+        setVoiceTriggerStatus("loading");
+        setVoiceModelProgress(0);
+        const capture = await startVoskSpeechContext(audioMixerRef.current, voiceRecognitionHints, (transcript) => {
+          if (cancelled) return;
+          setVoiceTriggerStatus("hearing");
+          publishTranscript(transcript);
+          window.setTimeout(() => { if (!cancelled) setVoiceTriggerStatus("listening"); }, 140);
+        });
+        if (cancelled) {
+          capture?.stop();
+          return;
+        }
+        if (!capture) throw new Error("The selected microphone is not connected to the local recognizer.");
+        voskSpeechCaptureRef.current = capture;
+        setVoiceModelProgress(100);
+        setVoiceTriggerStatus("listening");
+      } catch (error) {
+        if (cancelled) return;
+        console.warn("Offline streaming speech could not start; using Whisper fallback.", error);
+        await startLocal();
+      } finally {
+        voskStarting = false;
+      }
+    };
+
+    const start = async () => {
+      if (diagnostics && (diagnosticScenario === "intent-pinch" || diagnosticScenario === "intent-sequence" || diagnosticScenario === "voice-command" || diagnosticScenario === "voice-palm-hold")) {
+        setSpeechContextMode("local");
+        setVoiceModelProgress(100);
+        setVoiceTriggerStatus("listening");
+        const target = voiceTriggerTargets[0];
+        diagnosticTimers.push(window.setTimeout(() => {
+          if (!cancelled && target) publishTranscript(`here is the ${target.triggerWord}`);
+        }, 620));
+        if (diagnosticScenario === "intent-sequence") {
+          const nextTarget = voiceTriggerTargets[1];
+          diagnosticTimers.push(window.setTimeout(() => {
+            if (!cancelled && nextTarget) publishTranscript(`now the ${nextTarget.triggerWord}`);
+          }, 2_600));
+        }
+        return;
+      }
+      if (diagnostics && diagnosticScenario === "shelf-confirm") {
+        setSpeechContextMode("local");
+        setVoiceModelProgress(100);
+        setVoiceTriggerStatus("listening");
+        return;
+      }
+      // Rii's production cue path is intentionally deterministic: the selected
+      // microphone feeds the local constrained grammar directly. Browser
+      // SpeechRecognition varied by browser, account and network, and could
+      // report "listening" without ever consuming the selected track.
+      await startStreamingLocal();
+    };
+    void start();
+    return () => {
+      cancelled = true;
+      diagnosticTimers.forEach((timer) => window.clearTimeout(timer));
+      const active = liveVoiceCaptureRef.current;
+      liveVoiceCaptureRef.current = null;
+      if (active) void active.stop();
+      browserSpeechCaptureRef.current?.stop();
+      browserSpeechCaptureRef.current = null;
+      voskSpeechCaptureRef.current?.stop();
+      voskSpeechCaptureRef.current = null;
+      voiceInferenceBusyRef.current = false;
+      pendingVoiceWindowRef.current = null;
+    };
+  }, [diagnosticScenario, diagnostics, finishTakeId, selectedMicrophoneId, studioReady, voiceCuesEnabled, voiceRecognitionHintSignature, voiceTriggerSignature]);
+  */
 
   useEffect(() => {
     if (!studioReady) return;
@@ -1762,26 +2814,54 @@ export default function App() {
     let cachedAssets: StudioAsset[] | null = null;
     let cachedScenes: StudioScene[] | null = null;
     let cachedSceneSolo: Record<string, string> | null = null;
+    let cachedCompletedVideoVersion = -1;
+    let cachedBudgetHiddenVersion = -1;
+    let cachedHiddenAssetIds = new Set<string>();
     let cachedStack: StudioLayer[] = [];
     let cachedPlayingVideos: Array<{ asset: StudioAsset; overlay: HTMLVideoElement }> = [];
     const targetFps = normalizedCompositionFps(activeFrameRate);
     const frameBudget = compositionFrameBudget(targetFps);
+    const Processor = videoFrameProcessor();
+    const cameraTrack = cameraStreamRef.current?.getVideoTracks()[0] ?? null;
+    let cameraReader: ReadableStreamDefaultReader<VideoFrame> | null = null;
+    let cameraReaderTrack: MediaStreamTrack | null = null;
+    let screenReader: ReadableStreamDefaultReader<VideoFrame> | null = null;
+    let screenReaderTrack: MediaStreamTrack | null = null;
+    let latestScreenFrame: VideoFrame | null = null;
+    let displayFallbackStarted = false;
 
     const refreshLayerCache = () => {
-      if (cachedLayerIds === liveLayerIdsRef.current && cachedAssets === assetsRef.current && cachedScenes === scenesRef.current && cachedSceneSolo === sceneSoloRef.current) return;
+      if (cachedLayerIds === liveLayerIdsRef.current && cachedAssets === assetsRef.current && cachedScenes === scenesRef.current && cachedSceneSolo === sceneSoloRef.current && cachedCompletedVideoVersion === completedVideoVersionRef.current && cachedBudgetHiddenVersion === budgetHiddenVersionRef.current) return;
       cachedLayerIds = liveLayerIdsRef.current;
       cachedAssets = assetsRef.current;
       cachedScenes = scenesRef.current;
       cachedSceneSolo = sceneSoloRef.current;
+      cachedCompletedVideoVersion = completedVideoVersionRef.current;
+      cachedBudgetHiddenVersion = budgetHiddenVersionRef.current;
+      cachedHiddenAssetIds = mergedAssetIds(completedVideoIdsRef.current, budgetHiddenAssetIdsRef.current);
       cachedStack = liveLayerIdsRef.current
         .map((id) => resolveLayer(id, assetsRef.current, scenesRef.current))
         .filter((layer): layer is StudioLayer => Boolean(layer));
       const assetById = new Map(assetsRef.current.map((asset) => [asset.id, asset]));
-      const playingVideoIds = new Set(cachedStack.flatMap((layer) => {
-        if (layer.kind === "asset") return layer.asset.kind === "video" ? [layer.asset.id] : [];
+      const compositionStack = visibleLayersForComposition(cachedStack);
+      const playingVideoIds = new Set(compositionStack.flatMap((layer) => {
+        if (layer.kind === "asset") return layer.asset.kind === "video" && !cachedHiddenAssetIds.has(layer.asset.id) ? [layer.asset.id] : [];
         const soloId = sceneSoloRef.current[layer.scene.id];
-        return layer.assets.filter((asset) => asset.kind === "video" && (!soloId || asset.id === soloId)).map((asset) => asset.id);
+        return layer.assets.filter((asset) => asset.kind === "video" && !cachedHiddenAssetIds.has(asset.id) && (!soloId || asset.id === soloId)).map((asset) => asset.id);
       }));
+      const allLiveVideoIds = new Set([
+        ...cachedStack.flatMap((layer) => layerAssetIds(layer).filter((id) => assetById.get(id)?.kind === "video")),
+        ...currentVideoStyleAssets().filter((asset) => asset.kind === "video" && asset.id !== SCREEN_OVERLAY_ID).map((asset) => asset.id)
+      ]);
+      allLiveVideoIds.forEach((id) => {
+        const overlay = videosRef.current.get(id);
+        const asset = assetById.get(id);
+        if (!overlay || !asset) return;
+        const visible = playingVideoIds.has(id);
+        if (!visible) overlay.pause();
+        else if (overlay.paused) void overlay.play().catch(() => undefined);
+        setVideoAudioEnabled(audioMixerRef.current, id, Boolean(visible && asset.includeAudio));
+      });
       cachedPlayingVideos = [...playingVideoIds].flatMap((id) => {
         const asset = assetById.get(id);
         const overlay = videosRef.current.get(id);
@@ -1789,21 +2869,119 @@ export default function App() {
       });
     };
 
-    const draw = (now: number) => {
+    const completeVideoAsset = (asset: StudioAsset, overlay: HTMLVideoElement) => {
+      if (completedVideoIdsRef.current.has(asset.id)) return;
+      completedVideoIdsRef.current = new Set(completedVideoIdsRef.current).add(asset.id);
+      completedVideoVersionRef.current += 1;
+      overlay.pause();
+      setVideoAudioEnabled(audioMixerRef.current, asset.id, false);
+
+      const ownerScene = scenesRef.current.find((scene) => scene.memberIds.includes(asset.id));
+      if (ownerScene) {
+        if (sceneSoloRef.current[ownerScene.id] === asset.id) {
+          const nextSolo = { ...sceneSoloRef.current };
+          delete nextSolo[ownerScene.id];
+          sceneSoloRef.current = nextSolo;
+          setSceneSolo(nextSolo);
+        }
+        if (sceneMemberTargetIdRef.current === asset.id) {
+          sceneMemberTargetIdRef.current = null;
+          sceneMemberMissSinceRef.current = null;
+          setSceneMemberTargetId(null);
+          setSelectedSceneMemberId(null);
+        }
+        return;
+      }
+
+      const nextStack = removeLayer(liveLayerIdsRef.current, asset.id);
+      liveLayerIdsRef.current = nextStack;
+      cachedStack = cachedStack.filter((layer) => layer.id !== asset.id);
+      const nextActivationTimes = { ...layerActivationTimesRef.current };
+      delete nextActivationTimes[asset.id];
+      layerActivationTimesRef.current = nextActivationTimes;
+      const nextFocus = activeLayerIdRef.current === asset.id ? nextStack.at(-1) ?? null : activeLayerIdRef.current;
+      activeLayerIdRef.current = nextFocus;
+      setLiveLayerIds(nextStack);
+      setActiveLayerId(nextFocus);
+    };
+
+    const draw = (now: number, cameraSource: HTMLVideoElement | VideoFrame, screenSource: HTMLVideoElement | VideoFrame | null, sourceDriven = false) => {
       if (stopped) return;
-      if (shouldComposeFrame(now, lastComposedAt, targetFps)) {
+      if (sourceDriven || shouldComposeFrame(now, lastComposedAt, targetFps)) {
         lastComposedAt = now;
         refreshLayerCache();
         cachedPlayingVideos.forEach(({ asset, overlay }) => {
           if (!Number.isFinite(overlay.duration) || overlay.duration <= 0) return;
           const trim = normalizeVideoTrim(asset.videoTrim, overlay.duration);
-          if (overlay.currentTime < trim.start - 0.04 || overlay.currentTime >= trim.end - 0.025 || overlay.ended) {
+          const boundaryAction = videoBoundaryAction("once", overlay.currentTime, trim, overlay.ended);
+          if (boundaryAction === "complete") {
+            completeVideoAsset(asset, overlay);
+          } else if (boundaryAction === "restart") {
             overlay.currentTime = trim.start;
             void overlay.play().catch(() => undefined);
           }
         });
         const composeStarted = performance.now();
-        composeFrame(context, canvas, video, cachedStack, { images: imagesRef.current, videos: videosRef.current }, activatedAtRef.current, now, mirrorCameraRef.current, cameraFrameRef.current, sceneSoloRef.current, screenVideoRef.current, screenOverlayRef.current);
+        const cameraReflow = cameraReflowControllerRef.current.update(cameraReflowTarget(cachedStack), now);
+        cameraReflowFrameRef.current = cameraReflow;
+        const focusedLayer = activeLayerIdRef.current && activeLayerIdRef.current !== SCREEN_OVERLAY_ID
+          ? resolveLayer(activeLayerIdRef.current, assetsRef.current, scenesRef.current)
+          : null;
+        let compositionStyleWindow = currentVideoStyleWindow();
+        const smoothDeckFrame = deckScrollControllerRef.current.frame(now, Math.max(0, compositionStyleWindow.total - MAX_STYLE_ASSETS));
+        if (Math.abs(smoothDeckFrame.offset - assetDeckOffsetRef.current) > 0.0005) {
+          assetDeckOffsetRef.current = smoothDeckFrame.offset;
+          compositionStyleWindow = currentVideoStyleWindow();
+        }
+        const compositionStyleAssets = compositionStyleWindow.assets;
+        const activeMediaWidget = widgetsRef.current.find((widget) => widget.kind === "media" && widget.visible && widget.active && widget.actionAssetId === activeLayerIdRef.current);
+        const videoStyleComposition = focusedLayer?.kind === "scene" ? undefined : {
+          id: videoStyleRef.current,
+          assets: compositionStyleAssets,
+          focusedAssetId: activeLayerIdRef.current && compositionStyleAssets.some((asset) => asset.id === activeLayerIdRef.current)
+            ? activeLayerIdRef.current
+            : null,
+          deckVisible: assetDeckVisibleRef.current,
+          deckScrollOffset: compositionStyleWindow.offset,
+          deckWindowStart: compositionStyleWindow.windowStart,
+          deckTotal: compositionStyleWindow.total,
+          deckPlacement: deckPlacementRef.current,
+          panelBackground: panelBackgroundRef.current,
+          screenAssetId: screenSettingsRef.current ? SCREEN_OVERLAY_ID : undefined,
+          pipAssetId: activeMediaWidget?.actionAssetId
+        };
+        const drawDeskObjects = () => {
+          drawCanvasWidgets(context, canvas.width, canvas.height, widgetsRef.current, now, assetsRef.current, imagesRef.current, videosRef.current, scenesRef.current);
+          if (screenSettingsRef.current) drawLiveSticker(context, canvas.width, canvas.height, activeLayerIdRef.current === SCREEN_OVERLAY_ID);
+        };
+        const deskBehindActiveVisual = Boolean(activeLayerIdRef.current);
+        composeFrame(
+          context,
+          canvas,
+          cameraSource,
+          cachedStack,
+          { images: imagesRef.current, videos: videosRef.current },
+          layerActivationTimesRef.current,
+          now,
+          cameraReflow,
+          mirrorCameraRef.current,
+          cameraFrameRef.current,
+          sceneSoloRef.current,
+          screenSettingsRef.current?.recursionGuard ? null : screenSource,
+          screenOverlayRef.current,
+          cachedHiddenAssetIds,
+          videoStyleComposition,
+          deskBehindActiveVisual ? drawDeskObjects : undefined
+        );
+        const spotlightState = spotlightRef.current;
+        const spotlightRect = spotlightRectRef.current;
+        if (spotlightState && spotlightRect) drawStageSpotlight(context, canvas, spotlightRect, spotlightState.progress);
+        if (!deskBehindActiveVisual) drawDeskObjects();
+        const morphExit = assetMorphExitRef.current;
+        if (morphExit && drawAssetMorphExit(context, morphExit, now)) {
+          assetMorphExitRef.current = null;
+          setMorphExitAssetId(null);
+        }
         const composeMs = performance.now() - composeStarted;
         composedFrames += 1;
         totalComposeMs += composeMs;
@@ -1812,25 +2990,93 @@ export default function App() {
       if (now - statsStarted >= 1000) {
         const elapsed = now - statsStarted;
         const nextHealth = compositionHealth(composedFrames, totalComposeMs, elapsed, targetFps, overBudgetFrames);
-        setCompositionStats((current) => current.fps === nextHealth.fps
-          && current.averageMs === nextHealth.averageMs
-          && current.budgetPercent === nextHealth.budgetPercent
-          && current.overBudgetFrames === nextHealth.overBudgetFrames
-          ? current
-          : nextHealth);
+        if (!document.hidden) {
+          setCompositionStats((current) => current.fps === nextHealth.fps
+            && current.averageMs === nextHealth.averageMs
+            && current.budgetPercent === nextHealth.budgetPercent
+            && current.overBudgetFrames === nextHealth.overBudgetFrames
+            ? current
+            : nextHealth);
+        }
         composedFrames = 0;
         totalComposeMs = 0;
         overBudgetFrames = 0;
         statsStarted = now;
       }
-      outputAnimationRef.current = requestAnimationFrame(draw);
     };
-    outputAnimationRef.current = requestAnimationFrame(draw);
+
+    const startDisplayFallback = () => {
+      if (stopped || displayFallbackStarted) return;
+      displayFallbackStarted = true;
+      setCompositionDriver("display");
+      const animate = (now: number) => {
+        if (stopped) return;
+        draw(now, video, screenVideoRef.current);
+        outputAnimationRef.current = requestAnimationFrame(animate);
+      };
+      outputAnimationRef.current = requestAnimationFrame(animate);
+    };
+
+    if (Processor && cameraTrack) {
+      setCompositionDriver("media-track");
+      const sharedTrack = screenStreamRef.current?.getVideoTracks()[0] ?? null;
+      if (sharedTrack) {
+        screenReaderTrack = sharedTrack.clone();
+        screenReader = new Processor({ track: screenReaderTrack, maxBufferSize: 1 }).readable.getReader();
+        void (async () => {
+          try {
+            while (!stopped && screenReader) {
+              const result = await screenReader.read();
+              if (result.done) break;
+              if (stopped) result.value.close();
+              else latestScreenFrame = replaceLatestFrame(latestScreenFrame, result.value);
+            }
+          } catch (error) {
+            if (!stopped) {
+              latestScreenFrame?.close();
+              latestScreenFrame = null;
+              console.warn("Shared-screen frame processing stopped", error);
+            }
+          }
+        })();
+      }
+
+      cameraReaderTrack = cameraTrack.clone();
+      cameraReader = new Processor({ track: cameraReaderTrack, maxBufferSize: 1 }).readable.getReader();
+      void (async () => {
+        try {
+          while (!stopped && cameraReader) {
+            const result = await cameraReader.read();
+            if (result.done) break;
+            try {
+              draw(performance.now(), result.value, latestScreenFrame ?? screenVideoRef.current, true);
+            } finally {
+              result.value.close();
+            }
+          }
+          if (!stopped) startDisplayFallback();
+        } catch (error) {
+          if (!stopped) {
+            console.error("Camera frame processing stopped", error);
+            startDisplayFallback();
+          }
+        }
+      })();
+    } else {
+      startDisplayFallback();
+    }
+
     return () => {
       stopped = true;
       if (outputAnimationRef.current !== null) cancelAnimationFrame(outputAnimationRef.current);
+      outputAnimationRef.current = null;
+      void cameraReader?.cancel().catch(() => undefined);
+      void screenReader?.cancel().catch(() => undefined);
+      cameraReaderTrack?.stop();
+      screenReaderTrack?.stop();
+      latestScreenFrame?.close();
     };
-  }, [activeFrameRate, studioReady]);
+  }, [activeFrameRate, granted, screenSettings, studioReady]);
 
   const chooseRecordingsFolder = async () => {
     const picker = (window as DirectoryPickerWindow).showDirectoryPicker;
@@ -1931,6 +3177,7 @@ export default function App() {
     setCaptionRenderProgress(0);
     setCaptionResultTakeId(null);
     setCaptionSegments([]);
+    setWordAnimationCues([]);
     setCaptionStyle({ ...DEFAULT_CAPTION_STYLE });
     setCaptionDrag({ dragging: false, snapX: false, snapY: false });
     setCaptionPreviewTime(0);
@@ -1938,7 +3185,9 @@ export default function App() {
     captionDragPointerRef.current = null;
     if (diagnostics && diagnosticScenario === "caption-layout") {
       setCaptionEnabled(true);
-      setCaptionSegments([{ id: "caption-layout-sample", text: "Place this caption exactly where you want it", start: 0, end: 5 }]);
+      const sampleSegments = [{ id: "caption-layout-sample", text: "Place this caption exactly where you want it", start: 0, end: 5 }];
+      setCaptionSegments(sampleSegments);
+      setWordAnimationCues(buildWordAnimationCues(sampleSegments, [{ id: "sample-emphasis", time: 2.2, strength: 0.95 }], 5));
       setCaptionStatus("ready");
       return;
     }
@@ -1947,10 +3196,19 @@ export default function App() {
       if (saved) {
         setCaptionSegments(saved.segments);
         setCaptionStyle(normalizeCaptionStyle(saved.style));
+        setWordAnimationCues(saved.wordCues ?? []);
         setCaptionStatus("ready");
       }
     }
   };
+
+  useEffect(() => {
+    if (!diagnostics || diagnosticScenario !== "caption-layout" || finishTakeId || isRecording || isFinalizing) return;
+    const latest = recordings.find((take) => Boolean(take.url));
+    if (!latest || diagnosticCaptionOpenedRef.current === latest.id) return;
+    diagnosticCaptionOpenedRef.current = latest.id;
+    void openFinishTake(latest);
+  }, [diagnosticScenario, diagnostics, finishTakeId, isFinalizing, isRecording, recordings]);
 
   const generateEnglishCaptions = async () => {
     if (!finishTake) return;
@@ -1961,15 +3219,22 @@ export default function App() {
       if (!audio && !diagnostics) audio = await loadCaptionAudio(finishTake.id);
       if (!audio?.samples.length) throw new Error("This take has no mic-only caption source. Record a new take with the microphone enabled.");
       captionAudioCacheRef.current.set(finishTake.id, audio);
-      const segments = await transcribeEnglish(audio, (progress) => {
-        setCaptionProgress(progress);
-        setCaptionStatus(progress.phase === "loading" ? "loading" : "transcribing");
-      });
+      const segments = diagnostics
+        ? [
+            { id: "diagnostic-caption-1", text: "Today we launch something incredible", start: 0, end: 2.4 },
+            { id: "diagnostic-caption-2", text: "Here are three reasons it feels faster", start: 2.5, end: 5.4 }
+          ]
+        : await transcribeEnglish(audio, (progress) => {
+            setCaptionProgress(progress);
+            setCaptionStatus(progress.phase === "loading" ? "loading" : "transcribing");
+          });
       if (!segments.length) throw new Error("No clear English speech was found in the selected microphone feed.");
+      const wordCues = buildWordAnimationCues(segments, finishTake.voiceEmphasis ?? [], finishTake.durationSeconds);
       setCaptionSegments(segments);
+      setWordAnimationCues(wordCues);
       setCaptionStatus("ready");
       setCaptionProgress(null);
-      if (!diagnostics) await saveCaptionDocument({ takeId: finishTake.id, segments, style: captionStyle, updatedAt: Date.now() });
+      if (!diagnostics) await saveCaptionDocument({ takeId: finishTake.id, segments, style: captionStyle, wordCues, updatedAt: Date.now() });
     } catch (error) {
       setCaptionStatus("error");
       setCaptionProgress(null);
@@ -2044,6 +3309,26 @@ export default function App() {
     markCaptionDraftChanged();
   };
 
+  const removeWordAnimation = (id: string) => {
+    setWordAnimationCues((current) => current.filter((cue) => cue.id !== id));
+    markCaptionDraftChanged();
+  };
+
+  const restoreWordAnimations = () => {
+    if (!finishTake || !captionSegments.length) return;
+    setWordAnimationCues(buildWordAnimationCues(captionSegments, finishTake.voiceEmphasis ?? [], finishTake.durationSeconds));
+    markCaptionDraftChanged();
+  };
+
+  const seekWordAnimation = (cue: WordAnimationCue) => {
+    const video = captionPreviewVideoRef.current;
+    if (!video) return;
+    video.pause();
+    video.currentTime = Math.max(0, cue.start + 0.04);
+    setCaptionPreviewTime(video.currentTime);
+    setCaptionPreviewPlaying(false);
+  };
+
   const setCaptionPositionPreset = (position: CaptionStyle["position"]) => {
     updateCaptionStyle(position === "custom" ? { position } : { position, ...captionPresetAnchor(position) });
   };
@@ -2101,7 +3386,7 @@ export default function App() {
     try {
       setCaptionStatus("rendering");
       setCaptionRenderProgress(0);
-      if (!diagnostics && captionsReady) await saveCaptionDocument({ takeId: finishTake.id, segments: captionSegments, style: captionStyle, updatedAt: Date.now() });
+      if (!diagnostics && (captionsReady || wordAnimationsReady)) await saveCaptionDocument({ takeId: finishTake.id, segments: captionSegments, style: captionStyle, wordCues: wordAnimationCues, updatedAt: Date.now() });
       const blob = await renderCaptionedTake({
         sourceUrl: finishTake.url,
         width: finishTake.width,
@@ -2110,11 +3395,12 @@ export default function App() {
         bitrate: finishTake.bitrate,
         segments: captionsReady ? captionSegments : [],
         style: captionsReady ? captionStyle : undefined,
+        wordCues: wordAnimationsReady ? wordAnimationCues : [],
         startTime: normalizedTakeTrim.start,
         endTime: normalizedTakeTrim.end,
         onProgress: setCaptionRenderProgress
       });
-      let fileName = editedFileName(finishTake.fileName, { captions: captionsReady, trimmed: takeIsTrimmed });
+      let fileName = editedFileName(finishTake.fileName, { captions: captionsReady, trimmed: takeIsTrimmed, wordCues: wordAnimationsReady });
       let folderBacked = false;
       const directory = recordingsDirectoryRef.current;
       if (directory && await directoryPermission(directory, true) === "granted") {
@@ -2192,21 +3478,93 @@ export default function App() {
     }
   };
 
-  const removeTake = async (take: RecordedClip) => {
-    if (!window.confirm(`Delete ${take.fileName}${take.folderBacked ? " from the recordings folder" : " from this session"}?`)) return;
+  const removeTake = async (take: RecordedClip, deleteDestinationFile: boolean) => {
+    setDeletingTakeId(take.id);
     try {
-      if (take.folderBacked && recordingsDirectoryRef.current && await directoryPermission(recordingsDirectoryRef.current, true) === "granted") {
-        await recordingsDirectoryRef.current.removeEntry(take.fileName);
+      if (take.folderBacked && deleteDestinationFile) {
+        const directory = recordingsDirectoryRef.current;
+        if (!directory || await directoryPermission(directory, true) !== "granted") {
+          throw new Error("Reconnect the recordings folder before deleting the MP4 from disk.");
+        }
+        try {
+          await directory.removeEntry(take.fileName);
+        } catch (error) {
+          if (!(error instanceof DOMException && error.name === "NotFoundError")) throw error;
+        }
       }
       if (take.url) URL.revokeObjectURL(take.url);
       await deleteTake(take.id);
       takeLibraryRef.current = takeLibraryRef.current.filter((item) => item.id !== take.id);
       setRecordings((current) => current.filter((item) => item.id !== take.id));
       if (previewTakeId === take.id) setPreviewTakeId(null);
+      setPendingDeleteTakeId(null);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "The take could not be deleted.");
+    } finally {
+      setDeletingTakeId(null);
     }
   };
+
+  function enforceBudgetForStack(requestedLayerIds: readonly string[]) {
+    const layers = requestedLayerIds
+      .map((id) => resolveLayer(id, assetsRef.current, scenesRef.current))
+      .filter((layer): layer is StudioLayer => Boolean(layer));
+    const budget = enforceLiveBudget(layers, {
+      screenActive: Boolean(screenSettingsRef.current),
+      focusedSceneMembers: sceneSoloRef.current,
+      alreadyHidden: completedVideoIdsRef.current
+    });
+    budgetHiddenAssetIdsRef.current = budget.hiddenAssetIds;
+    budgetHiddenVersionRef.current += 1;
+
+    const visibleAssetIds = new Set(budget.layerIds.flatMap((id) => {
+      const layer = resolveLayer(id, assetsRef.current, scenesRef.current);
+      return layer ? layerAssetIds(layer).filter((assetId) => !budget.hiddenAssetIds.has(assetId)) : [];
+    }));
+    layers.forEach((layer) => layerAssetIds(layer).forEach((assetId) => {
+      if (visibleAssetIds.has(assetId)) return;
+      videosRef.current.get(assetId)?.pause();
+      setVideoAudioEnabled(audioMixerRef.current, assetId, false);
+    }));
+
+    const hiddenVideos = [...budget.hiddenAssetIds].filter((id) => assetsRef.current.find((asset) => asset.id === id)?.kind === "video").length;
+    if (budget.evictedLayerIds.length || hiddenVideos) {
+      const parts = [
+        budget.evictedLayerIds.length ? `${budget.evictedLayerIds.length} older layer${budget.evictedLayerIds.length === 1 ? "" : "s"} paused` : "",
+        hiddenVideos ? `${hiddenVideos} extra video${hiddenVideos === 1 ? "" : "s"} paused` : ""
+      ].filter(Boolean);
+      setLiveBudgetNotice(`Performance guard · ${parts.join(" · ")}`);
+    } else setLiveBudgetNotice(null);
+    return budget.layerIds;
+  }
+
+  const closeVisualTimelineEvent = useCallback((at = Date.now()) => {
+    if (!recordingRef.current || !recordingStartedAtRef.current) return;
+    const elapsed = Math.max(0, at - recordingStartedAtRef.current);
+    setTimelineEvents((current) => {
+      const next = closeOpenDirectorEvents(current, elapsed);
+      timelineEventsRef.current = next;
+      return next;
+    });
+  }, []);
+
+  const appendVisualTimelineEvent = useCallback((layer: StudioLayer, at = Date.now()) => {
+    if (!recordingRef.current || !recordingStartedAtRef.current) return;
+    const elapsed = Math.max(0, at - recordingStartedAtRef.current);
+    setTimelineEvents((current) => {
+      const next = appendDirectorEvent(current, {
+        assetId: layer.id,
+        label: layerName(layer),
+        startMs: elapsed,
+        endMs: null,
+        kind: layer.kind === "scene" ? "scene" : "visual",
+        source: "gesture",
+        action: "show"
+      });
+      timelineEventsRef.current = next;
+      return next;
+    });
+  }, []);
 
   const hideLayer = useCallback(() => {
     if (activeLayerIdRef.current === SCREEN_OVERLAY_ID && screenSettingsRef.current) {
@@ -2222,14 +3580,22 @@ export default function App() {
     }
     const result = hideFocusedLayer(liveLayerIdsRef.current);
     if (!result.hiddenId) return;
+    const nextStack = enforceBudgetForStack(result.stack);
+    const nextActivationTimes = { ...layerActivationTimesRef.current };
+    delete nextActivationTimes[result.hiddenId];
+    layerActivationTimesRef.current = nextActivationTimes;
     const hidden = resolveLayer(result.hiddenId, assetsRef.current, scenesRef.current);
-    const remainingAssetIds = new Set(result.stack.flatMap((id) => {
+    const remainingAssetIds = new Set(nextStack.flatMap((id) => {
       const layer = resolveLayer(id, assetsRef.current, scenesRef.current);
       return layer ? layerAssetIds(layer) : [];
     }));
     hidden && layerAssetIds(hidden).forEach((id) => {
-      if (!remainingAssetIds.has(id)) videosRef.current.get(id)?.pause();
+      if (!remainingAssetIds.has(id)) {
+        videosRef.current.get(id)?.pause();
+        setVideoAudioEnabled(audioMixerRef.current, id, false);
+      }
     });
+    restoreTransientLayer(result.hiddenId);
     if (hidden?.kind === "scene") {
       const nextSolo = { ...sceneSoloRef.current };
       delete nextSolo[hidden.scene.id];
@@ -2239,22 +3605,85 @@ export default function App() {
     manipulationTrackerRef.current.reset();
     palmSignalTrackerRef.current.reset();
     sceneMemberTargetIdRef.current = null;
+    sceneMemberMissSinceRef.current = null;
     setSceneMemberTargetId(null);
     setSelectedSceneMemberId(null);
     manipulationGuardUntilRef.current = performance.now() + 450;
     setManipulation({ mode: "idle", progress: 0 });
-    setSceneTemplateSnapped(false);
-    liveLayerIdsRef.current = result.stack;
-    activeLayerIdRef.current = result.focusedId;
-    setLiveLayerIds(result.stack);
-    setActiveLayerId(result.focusedId);
-  }, []);
+    const nextFocus = nextStack.at(-1) ?? null;
+    liveLayerIdsRef.current = nextStack;
+    activeLayerIdRef.current = nextFocus;
+    setLiveLayerIds(nextStack);
+    setActiveLayerId(nextFocus);
+    directorFocusedAssetIdRef.current = null;
+    setDirectorFocusedAssetId(null);
+    palmRestoreRef.current = { since: 0, latched: false };
+    closeVisualTimelineEvent();
+  }, [closeVisualTimelineEvent, restoreTransientLayer]);
+
+  const startMorphExit = useCallback((assetId: string) => {
+    const canvas = outputCanvasRef.current;
+    const layer = activeLayerIdRef.current ? resolveLayer(activeLayerIdRef.current, assetsRef.current, scenesRef.current) : null;
+    if (!canvas || !layer || layer.kind !== "asset" || layer.asset.id !== assetId || !activeGeometry?.rect || assetMorphExitRef.current) return;
+    const sourceRect = activeGeometry.rect;
+    const x = Math.max(0, Math.min(canvas.width - 1, sourceRect.x));
+    const y = Math.max(0, Math.min(canvas.height - 1, sourceRect.y));
+    const width = Math.max(1, Math.min(canvas.width - x, sourceRect.width));
+    const height = Math.max(1, Math.min(canvas.height - y, sourceRect.height));
+    const previewScale = Math.min(1, 1_200 / width, 900 / height);
+    const snapshot = document.createElement("canvas");
+    snapshot.width = Math.max(1, Math.round(width * previewScale));
+    snapshot.height = Math.max(1, Math.round(height * previewScale));
+    const snapshotContext = snapshot.getContext("2d", { alpha: false });
+    if (!snapshotContext) return;
+    snapshotContext.drawImage(canvas, x, y, width, height, 0, 0, snapshot.width, snapshot.height);
+    const now = performance.now();
+    assetMorphExitRef.current = {
+      id: crypto.randomUUID(),
+      assetId,
+      name: layer.asset.name,
+      startedAt: now,
+      durationMs: 820,
+      rect: { x, y, width, height },
+      snapshot
+    };
+    // The same finishing arc must not immediately focus the next deck item.
+    morphFocusLockUntilRef.current = now + 1_200;
+    setMorphExitAssetId(assetId);
+    setMorphGestureProgress(0);
+    circleMorphTrackerRef.current.reset();
+    setPhaseMessage(`${shortName(layer.asset.name, 28)} morphed away`);
+    hideLayer();
+  }, [activeGeometry, hideLayer]);
+
+  useEffect(() => { startMorphExitRef.current = startMorphExit; }, [startMorphExit]);
 
   const activateStudioLayer = useCallback((layer: StudioLayer) => {
+    const previousLayerIds = [...liveLayerIdsRef.current];
+    previousLayerIds.forEach((layerId) => {
+      const previous = resolveLayer(layerId, assetsRef.current, scenesRef.current);
+      previous && layerAssetIds(previous).forEach((assetId) => {
+        videosRef.current.get(assetId)?.pause();
+        setVideoAudioEnabled(audioMixerRef.current, assetId, false);
+      });
+      restoreTransientLayer(layerId);
+    });
     sceneSoloRef.current = {};
     setSceneSolo({});
     setSelectedSceneMemberId(null);
-    layerAssetIds(layer).forEach((id) => {
+    directorFocusedAssetIdRef.current = null;
+    setDirectorFocusedAssetId(null);
+    const assetIds = layerAssetIds(layer);
+    const nextCompleted = new Set(completedVideoIdsRef.current);
+    let restoredCompletedVideo = false;
+    assetIds.forEach((id) => {
+      if (nextCompleted.delete(id)) restoredCompletedVideo = true;
+    });
+    if (restoredCompletedVideo) {
+      completedVideoIdsRef.current = nextCompleted;
+      completedVideoVersionRef.current += 1;
+    }
+    assetIds.forEach((id) => {
       const overlayVideo = videosRef.current.get(id);
       if (!overlayVideo) return;
       const asset = assetsRef.current.find((item) => item.id === id);
@@ -2270,18 +3699,241 @@ export default function App() {
     palmSignalTrackerRef.current.reset();
     manipulationGuardUntilRef.current = now + 700;
     setManipulation({ mode: "idle", progress: 0 });
-    setSceneTemplateSnapped(false);
-    const nextStack = activateLayer(liveLayerIdsRef.current, layer.id);
+    const nextStack = enforceBudgetForStack([layer.id]);
     liveLayerIdsRef.current = nextStack;
     activeLayerIdRef.current = layer.id;
-    activatedAtRef.current = now;
+    layerActivationTimesRef.current = { ...layerActivationTimesRef.current, [layer.id]: now };
     setLiveLayerIds(nextStack);
     setActiveLayerId(layer.id);
     setActivatedAt(now);
+    palmRestoreRef.current = { since: 0, latched: false };
+    appendVisualTimelineEvent(layer);
+  }, [appendVisualTimelineEvent, restoreTransientLayer]);
+
+  useEffect(() => { activateStudioLayerRef.current = activateStudioLayer; }, [activateStudioLayer]);
+
+  const confirmCurrentIntent = useCallback(() => {
+    const publishConfirmFeedback = (message: string) => {
+      setConfirmFeedback(message);
+      if (confirmFeedbackTimerRef.current !== null) window.clearTimeout(confirmFeedbackTimerRef.current);
+      confirmFeedbackTimerRef.current = window.setTimeout(() => {
+        setConfirmFeedback("");
+        confirmFeedbackTimerRef.current = null;
+      }, 1_650);
+    };
+    const candidate = intentQueueRef.current[0];
+    if (!candidate?.confirmable) {
+      const message = candidate ? "Pinch seen — keep speaking" : "Pinch seen — say the concept first";
+      setPhaseMessage(message);
+      publishConfirmFeedback(message);
+      return;
+    }
+    const concept = conceptsRef.current.find((item) => item.id === candidate.conceptId);
+    if (!concept) return;
+    const now = performance.now();
+    const lastConfirmed = conceptCooldownsRef.current.get(concept.id) ?? Number.NEGATIVE_INFINITY;
+    if (now - lastConfirmed < concept.cooldownMs) {
+      publishConfirmFeedback(`${concept.displayName} is already ready`);
+      return;
+    }
+
+    let layerId: string | null = concept.sceneIds[0] ? sceneLayerId(concept.sceneIds[0]) : null;
+    if (!layerId && concept.assetIds.length) {
+      const cursor = conceptCursorsRef.current.get(concept.id) ?? 0;
+      layerId = concept.assetIds[cursor % concept.assetIds.length];
+      conceptCursorsRef.current.set(concept.id, cursor + 1);
+    }
+    if (!layerId) {
+      publishConfirmFeedback(`${concept.displayName} has no visual yet`);
+      return;
+    }
+
+    if (layerId.startsWith("scene:")) {
+      const sceneId = layerId.slice("scene:".length);
+      const nextScenes = scenesRef.current.map((scene) => scene.id === sceneId ? { ...scene, entranceAnimation: concept.animation } : scene);
+      scenesRef.current = nextScenes;
+      setScenes(nextScenes);
+    } else {
+      const nextAssets = assetsRef.current.map((asset) => asset.id === layerId ? { ...asset, entranceAnimation: concept.animation } : asset);
+      assetsRef.current = nextAssets;
+      setAssets(nextAssets);
+    }
+    const layer = resolveLayer(layerId, assetsRef.current, scenesRef.current);
+    if (!layer) return;
+    conceptCooldownsRef.current.set(concept.id, now);
+    activateStudioLayerRef.current(layer);
+    setPhaseMessage(`${concept.displayName} on stage`);
+    publishConfirmFeedback(`${concept.displayName} shown`);
+    studioEventsRef.current.emit("overlay:spawned", { conceptId: concept.id, layerId, at: now });
   }, []);
 
+  useEffect(() => { confirmIntentRef.current = confirmCurrentIntent; }, [confirmCurrentIntent]);
+  useEffect(() => studioEventsRef.current.on("gesture:confirm", () => confirmIntentRef.current()), []);
+
+  const revealVoiceTarget = useCallback((target: VoiceTriggerTarget, source: "voice" | "shelf") => {
+    const layer = resolveLayer(target.kind === "scene" ? sceneLayerId(target.id) : target.id, assetsRef.current, scenesRef.current);
+    if (!layer) return;
+    activateStudioLayerRef.current(layer);
+    clearArmedVoiceTarget();
+    operatorShelfOpenRef.current = false;
+    setOperatorShelfOpen(false);
+    setOperatorShelfTargetId(null);
+    setOperatorShelfProgress(0);
+    operatorShelfPointTrackerRef.current.reset();
+    // Keep the command tracker latched until the creator lowers their hand.
+    // Resetting it here made one long palm reveal the visual and then reopen
+    // the shelf roughly a second later.
+    setPhaseMessage(source === "voice" ? `${layerName(layer)} revealed` : `${layerName(layer)} selected from shelf`);
+  }, [clearArmedVoiceTarget]);
+
+  useEffect(() => { revealVoiceTargetRef.current = revealVoiceTarget; }, [revealVoiceTarget]);
+
+  const chooseShelfTarget = useCallback((target: VoiceTriggerTarget) => {
+    shelfPointCarryoverRef.current = true;
+    operatorShelfOpenRef.current = false;
+    setOperatorShelfOpen(false);
+    setOperatorShelfTargetId(null);
+    setOperatorShelfProgress(0);
+    operatorShelfPointTrackerRef.current.reset();
+    pointFocusTrackerRef.current.reset();
+    spotlightRef.current = null;
+    spotlightRectRef.current = null;
+    setSpotlight(null);
+    setPointFocus(null);
+    // Shelf selection happens with a point, so the next fresh palm should be
+    // accepted immediately as the reveal confirmation.
+    palmCommandTrackerRef.current.reset();
+    armVoiceTarget(target, target.triggerWord, "shelf");
+    setPhaseMessage(`${target.name} selected — raise your palm to reveal`);
+  }, [armVoiceTarget]);
+
+  useEffect(() => { chooseShelfTargetRef.current = chooseShelfTarget; }, [chooseShelfTarget]);
+
+  const focusVideoStyleAsset = useCallback((asset: StudioAsset) => {
+    if (asset.id === SCREEN_OVERLAY_ID) {
+      liveLayerIdsRef.current.forEach((layerId) => {
+        const previous = resolveLayer(layerId, assetsRef.current, scenesRef.current);
+        previous && layerAssetIds(previous).forEach((assetId) => {
+          videosRef.current.get(assetId)?.pause();
+          setVideoAudioEnabled(audioMixerRef.current, assetId, false);
+        });
+        restoreTransientLayer(layerId);
+      });
+      liveLayerIdsRef.current = [];
+      setLiveLayerIds([]);
+      selectScreenOverlay();
+      return;
+    }
+    if (screenOverlayRef.current.visible) {
+      screenOverlayRef.current = { ...screenOverlayRef.current, visible: false };
+      setScreenOverlay(screenOverlayRef.current);
+    }
+    const styleWindow = currentVideoStyleWindow();
+    const styleLayout = videoStyleLayout(videoStyleRef.current, outputSize.width, outputSize.height, styleWindow.assets.length, {
+      offset: styleWindow.offset,
+      windowStart: styleWindow.windowStart,
+      total: styleWindow.total,
+      position: deckPlacementRef.current
+    });
+    const source = asset.kind === "image" ? imagesRef.current.get(asset.id) : asset.kind === "video" ? videosRef.current.get(asset.id) : undefined;
+    const sourceWidth = source instanceof HTMLImageElement ? source.naturalWidth : source instanceof HTMLVideoElement ? source.videoWidth : undefined;
+    const sourceHeight = source instanceof HTMLImageElement ? source.naturalHeight : source instanceof HTMLVideoElement ? source.videoHeight : undefined;
+    const base = styleFocusBaseRect(styleLayout, asset, sourceWidth, sourceHeight);
+    const transform = initialStyleTransform(base, outputSize.width, outputSize.height);
+    const centeredAsset = { ...asset, transform };
+    commitAssetUpdates(asset.id, { transform });
+    activateStudioLayer({ id: asset.id, kind: "asset", asset: centeredAsset });
+  }, [activateStudioLayer, commitAssetUpdates, currentVideoStyleWindow, outputSize.height, outputSize.width, restoreTransientLayer, selectScreenOverlay]);
+
+  useEffect(() => { focusVideoStyleAssetRef.current = focusVideoStyleAsset; }, [focusVideoStyleAsset]);
+
+  const activateGestureCue = useCallback((gesture: GestureId) => {
+    const cursor = gestureSequenceCursorRef.current[gesture] ?? 0;
+    const cue = gestureCueAtCursor(
+      gesture,
+      cursor,
+      assetsRef.current,
+      scenesRef.current,
+      gestureSequencesRef.current
+    );
+    if (!cue) return false;
+
+    gestureSequenceCursorRef.current = {
+      ...gestureSequenceCursorRef.current,
+      [gesture]: cue.nextCursor
+    };
+
+    if (cue.mode === "replace" && cue.total > 1) {
+      const sequenceIds = new Set(cue.layerIds.filter((id) => id !== cue.layer.id));
+      const removedIds = liveLayerIdsRef.current.filter((id) => sequenceIds.has(id));
+      if (removedIds.length) {
+        const nextStack = liveLayerIdsRef.current.filter((id) => !sequenceIds.has(id));
+        const remainingAssetIds = new Set([
+          ...nextStack.flatMap((id) => {
+            const layer = resolveLayer(id, assetsRef.current, scenesRef.current);
+            return layer ? layerAssetIds(layer) : [];
+          }),
+          ...layerAssetIds(cue.layer)
+        ]);
+        removedIds.forEach((id) => {
+          const layer = resolveLayer(id, assetsRef.current, scenesRef.current);
+          if (!layer) return;
+          layerAssetIds(layer).forEach((assetId) => {
+            if (remainingAssetIds.has(assetId)) return;
+            videosRef.current.get(assetId)?.pause();
+            setVideoAudioEnabled(audioMixerRef.current, assetId, false);
+          });
+        });
+        const nextActivationTimes = { ...layerActivationTimesRef.current };
+        removedIds.forEach((id) => { delete nextActivationTimes[id]; });
+        layerActivationTimesRef.current = nextActivationTimes;
+        liveLayerIdsRef.current = nextStack;
+        setLiveLayerIds(nextStack);
+      }
+    }
+
+    setActiveGestureCue({
+      gesture,
+      index: cue.index,
+      total: cue.total,
+      name: layerName(cue.layer)
+    });
+    activateStudioLayer(cue.layer);
+    return true;
+  }, [activateStudioLayer]);
+
+  const showDirectorCueAt = useCallback((requestedIndex: number) => {
+    const queue = directorQueueRef.current;
+    if (!queue.length) return false;
+    const index = Math.min(queue.length - 1, Math.max(0, requestedIndex));
+    const cue = queue[index];
+    directorCursorRef.current = index;
+    setDirectorCursor(index);
+    setActiveGestureCue(null);
+    activateStudioLayer(cue);
+    return true;
+  }, [activateStudioLayer]);
+
+  const navigateDirector = useCallback((direction: -1 | 1) => {
+    const queue = directorQueueRef.current;
+    if (!queue.length) return false;
+    const current = directorCueIndex(queue, activeLayerIdRef.current, directorCursorRef.current);
+    const currentIsLive = queue.some((cue) => cue.id === activeLayerIdRef.current);
+    const target = currentIsLive
+      ? adjacentDirectorCueIndex(queue.length, current, direction)
+      : current;
+    return showDirectorCueAt(target);
+  }, [showDirectorCueAt]);
+
+  const restoreDirectorCue = useCallback(() => {
+    if (activeLayerIdRef.current || !directorQueueRef.current.length) return false;
+    return showDirectorCueAt(directorCursorRef.current);
+  }, [showDirectorCueAt]);
+
   const activateLayerFromLibrary = async (layer: StudioLayer) => {
-    activateStudioLayer(layer);
+    const index = directorQueueRef.current.findIndex((cue) => cue.id === layer.id);
+    if (index >= 0) showDirectorCueAt(index);
+    else activateStudioLayer(layer);
   };
 
   useEffect(() => {
@@ -2300,15 +3952,141 @@ export default function App() {
     let publishedDetected: { gesture: RecognizedGesture; confidence: number; source: string } = { gesture: null, confidence: 0, source: "none" };
     let frameCallbackId: number | null = null;
     let animationId: number | null = null;
+    let displayScheduleStarted = false;
+    let processorReader: ReadableStreamDefaultReader<VideoFrame> | null = null;
+    let processorTrack: MediaStreamTrack | null = null;
+    const Processor = videoFrameProcessor();
+    const cameraTrack = cameraStreamRef.current?.getVideoTracks()[0] ?? null;
     const category = (categoryName: string): InferenceCategory => ({ categoryName, score: 0.99, index: 0, displayName: "" });
 
     const applyDiagnostics = (result: GestureFrameResult, now: number) => {
       let categories = result.gestures.map((gestures) => gestures[0]);
       let landmarkSets = result.landmarks ?? [];
       let handednesses = result.handednesses ?? [];
-      const elapsed = now - diagnosticSequenceStartRef.current;
-      if (diagnosticScenario === "gesture" || diagnosticScenario === "palm" || diagnosticScenario === "scene") {
-        if (elapsed < 3000) categories = [category(diagnosticScenario === "palm" ? "Open_Palm" : "Pointing_Up")];
+      const elapsed = performance.now() - diagnosticSequenceStartRef.current;
+      if (diagnosticScenario === "intent-pinch" || diagnosticScenario === "intent-sequence" || diagnosticScenario === "streaming-speech" || diagnosticScenario === "streaming-sequence" || diagnosticScenario === "import-flow") {
+        const firstPinch = diagnosticScenario === "streaming-sequence" || diagnosticScenario === "import-flow"
+          ? elapsed >= 8_000 && elapsed < 8_900
+          : diagnosticScenario === "streaming-speech"
+          ? elapsed >= 10_000 && elapsed < 11_400
+          : elapsed >= 1_800 && elapsed < 2_400;
+        const secondPinch = diagnosticScenario === "intent-sequence"
+          ? elapsed >= 3_600 && elapsed < 4_200
+          : (diagnosticScenario === "streaming-sequence" || diagnosticScenario === "import-flow") && elapsed >= 13_000 && elapsed < 13_900;
+        const thirdPinch = (diagnosticScenario === "streaming-sequence" || diagnosticScenario === "import-flow") && elapsed >= 18_000 && elapsed < 18_900;
+        if (firstPinch || secondPinch || thirdPinch) {
+          const confirmsVoiceCue = diagnosticScenario === "streaming-speech";
+          categories = confirmsVoiceCue ? [category("Open_Palm")] : [];
+          landmarkSets = [confirmsVoiceCue ? diagnosticPalmLandmarks(0.5, 0.55) : diagnosticPinchLandmarks(0.82, 0.22)];
+          handednesses = [[{ ...category("Left"), score: 1 }]];
+        } else if (diagnosticScenario === "import-flow" && elapsed >= 21_000 && elapsed < 25_000) {
+          categories = [category("Closed_Fist")];
+          landmarkSets = [];
+          handednesses = [[{ ...category("Left"), score: 1 }]];
+        } else {
+          categories = [];
+          landmarkSets = [];
+          handednesses = [];
+        }
+      } else if (diagnosticScenario === "shelf-confirm") {
+        if ((elapsed >= 600 && elapsed < 1_600) || (elapsed >= 4_300 && elapsed < 5_300)) {
+          categories = [category("Open_Palm")];
+          landmarkSets = [diagnosticPalmLandmarks(0.5, 0.55)];
+        } else if (elapsed >= 2_100 && elapsed < 3_800) {
+          const shelfRect = operatorShelfRects(operatorShelfItemsRef.current, aspectRef.current === "portrait")[1]
+            ?? operatorShelfRects(operatorShelfItemsRef.current, aspectRef.current === "portrait")[0];
+          const tipX = shelfRect ? shelfRect.x + shelfRect.width / 2 : 0.4;
+          const tipY = shelfRect ? shelfRect.y + shelfRect.height / 2 : 0.7;
+          categories = [category("Pointing_Up")];
+          landmarkSets = [diagnosticPalmLandmarks(tipX + 0.05, tipY + 0.18)];
+        } else {
+          categories = [];
+          landmarkSets = [];
+        }
+        handednesses = categories.length ? [[{ ...category("Left"), score: 1 }]] : [];
+      } else if (diagnosticScenario === "voice-palm-hold") {
+        if (elapsed >= 1_050 && elapsed < 3_500) {
+          categories = [category("Open_Palm")];
+          landmarkSets = [diagnosticPalmLandmarks(0.5, 0.55)];
+        } else {
+          categories = [];
+          landmarkSets = [];
+        }
+        handednesses = categories.length ? [[{ ...category("Left"), score: 1 }]] : [];
+      } else if (diagnosticScenario === "voice-command") {
+        if ((elapsed >= 1_050 && elapsed < 1_650) || (elapsed >= 3_250 && elapsed < 3_850) || (elapsed >= 5_350 && elapsed < 5_950)) {
+          categories = [category("Open_Palm")];
+          landmarkSets = [diagnosticPalmLandmarks(0.5, 0.55)];
+        } else if (elapsed >= 2_200 && elapsed < 2_900) {
+          categories = [category("Closed_Fist")];
+          landmarkSets = [];
+        } else if (elapsed >= 4_150 && elapsed < 5_050) {
+          const firstShelfRect = operatorShelfRects(operatorShelfItemsRef.current, aspectRef.current === "portrait")[1]
+            ?? operatorShelfRects(operatorShelfItemsRef.current, aspectRef.current === "portrait")[0];
+          const tipX = firstShelfRect ? firstShelfRect.x + firstShelfRect.width / 2 : 0.4;
+          const tipY = firstShelfRect ? firstShelfRect.y + firstShelfRect.height / 2 : 0.7;
+          categories = [category("Pointing_Up")];
+          landmarkSets = [diagnosticPalmLandmarks(tipX + 0.05, tipY + 0.18)];
+        } else if (elapsed >= 6_350 && elapsed < 7_500) {
+          // The second shelf choice uses a left-side placement. Keep pointing
+          // at it long enough to verify the recorded spotlight treatment.
+          categories = [category("Pointing_Up")];
+          landmarkSets = [diagnosticPalmLandmarks(0.89, 0.68)];
+        } else {
+          categories = [];
+          landmarkSets = [];
+        }
+        handednesses = categories.length ? [[{ ...category("Left"), score: 1 }]] : [];
+      } else if (diagnosticScenario === "morph") {
+        if (elapsed >= 600 && elapsed < 1_700) {
+          categories = [category("Pointing_Up")];
+          landmarkSets = [diagnosticPalmLandmarks(0.89, 0.507)];
+        } else if (elapsed >= 2_350 && elapsed < 3_750) {
+          // Slightly over one orbit keeps the deterministic 10 fps diagnostic
+          // from ending one sample before the fingertip closes the circle.
+          const angle = (elapsed - 2_350) / 1_400 * Math.PI * 2.22;
+          const tipX = 0.84 + Math.cos(angle) * 0.07;
+          const tipY = 0.5 + Math.sin(angle) * 0.07;
+          categories = [category("Pointing_Up")];
+          landmarkSets = [diagnosticPalmLandmarks(tipX + 0.05, tipY + 0.18)];
+        } else {
+          categories = [];
+          landmarkSets = [];
+        }
+        handednesses = categories.length ? [[{ ...category("Left"), score: 1 }]] : [];
+      } else if (diagnosticScenario === "style-focus") {
+        if (elapsed >= 600 && elapsed < 2500) {
+          categories = [category("Pointing_Up")];
+          // The literal fingertip lands in the first right-rail card, away
+          // from the narrow gap between cards.
+          landmarkSets = [diagnosticPalmLandmarks(0.84, 0.507)];
+        } else if (elapsed >= 2700 && elapsed < 3700) {
+          // A palm far from the selected asset must not move or teleport it.
+          categories = [category("Open_Palm")];
+          landmarkSets = [diagnosticPalmLandmarks(0.2, 0.72)];
+        } else if (elapsed >= 3900 && elapsed < 5500) {
+          const spread = (elapsed - 3900) / 1600;
+          categories = [category("Open_Palm"), category("Open_Palm")];
+          landmarkSets = [diagnosticPalmLandmarks(0.6 + spread * .12, 0.5), diagnosticPalmLandmarks(0.98 - spread * .12, 0.5)];
+        } else if (elapsed >= 5800 && elapsed < 7000) {
+          categories = [category("Closed_Fist")];
+          landmarkSets = [];
+        } else {
+          categories = [];
+          landmarkSets = [];
+        }
+        handednesses = categories.length ? [[{ ...category("Left"), score: 1 }]] : [];
+      } else if (diagnosticScenario === "director" || diagnosticScenario === "director-back") {
+        if (elapsed < 1200 || (elapsed >= 1900 && elapsed < 3100)) categories = [category("Thumb_Up")];
+        else if (diagnosticScenario === "director-back" && elapsed >= 3800 && elapsed < 5400) categories = [category("Thumb_Down")];
+        else if (elapsed >= 3800 && elapsed < 6000) categories = [category("Closed_Fist")];
+        else if (elapsed >= 7000 && elapsed < 8600) categories = [category("Open_Palm")];
+        else if (elapsed >= 9600 && elapsed < 11200) categories = [category("Thumb_Down")];
+        else categories = [];
+        landmarkSets = elapsed >= 7000 && elapsed < 8600 ? [diagnosticPalmLandmarks(0.03, 0.06)] : [];
+        handednesses = categories.length ? [[{ ...category("Left"), score: 1 }]] : [];
+      } else if (diagnosticScenario === "gesture" || diagnosticScenario === "palm" || diagnosticScenario === "scene" || diagnosticScenario === "scene-reveal") {
+        if (elapsed < 3000) categories = [category(diagnosticScenario === "palm" ? "Open_Palm" : "Thumb_Up")];
         else if (elapsed >= 4500 && elapsed < 5500) categories = [category("Closed_Fist")];
         else categories = [];
         landmarkSets = diagnosticScenario === "palm" && elapsed < 3000 ? [diagnosticPalmLandmarks(0.15, 0.75)] : [];
@@ -2325,6 +4103,21 @@ export default function App() {
         else if (elapsed >= 5200 && elapsed < 6000) categories = [category("Closed_Fist")];
         else categories = [];
         landmarkSets = [];
+      } else if (diagnosticScenario === "sequence") {
+        if (elapsed < 900 || (elapsed >= 1800 && elapsed < 2700) || (elapsed >= 3600 && elapsed < 4500)) categories = [category("Pointing_Up")];
+        else if (elapsed >= 5200 && elapsed < 6000) categories = [category("Closed_Fist")];
+        else categories = [];
+        landmarkSets = [];
+      } else if (diagnosticScenario === "stack-manipulation") {
+        if (elapsed >= 900 && elapsed < 2300) {
+          categories = [category("Open_Palm")];
+          landmarkSets = [diagnosticPalmLandmarks(0.152, 0.476)];
+          handednesses = [[{ ...category("Left"), score: 1 }]];
+        } else {
+          categories = [];
+          landmarkSets = [];
+          handednesses = [];
+        }
       } else if (diagnosticScenario === "screen-manipulation") {
         if (elapsed >= 450 && elapsed < 1200) {
           categories = [category("Open_Palm")];
@@ -2341,19 +4134,35 @@ export default function App() {
           landmarkSets = [];
         }
         handednesses = categories.length ? [[{ ...category("Left"), score: 1 }]] : [];
-      } else if (diagnosticScenario === "manipulation" || diagnosticScenario === "corner-snap" || diagnosticScenario === "scene-manipulation") {
+      } else if (diagnosticScenario === "scene-focus") {
+        if (elapsed < 1100) {
+          categories = [category("Thumb_Up")];
+          landmarkSets = [];
+        } else if (elapsed >= 1800 && elapsed < 3200) {
+          categories = [category("Pointing_Up")];
+          landmarkSets = [diagnosticPalmLandmarks(0.42, 0.56)];
+        } else {
+          categories = [];
+          landmarkSets = [];
+        }
+        handednesses = categories.length ? [[{ ...category("Left"), score: 1 }]] : [];
+      } else if (diagnosticScenario === "scene-selection") {
+        if (elapsed >= 2500 && elapsed < 2680) {
+          landmarkSets = [diagnosticPalmLandmarks(0.41, 0.354)];
+        } else if (elapsed >= 2820 && elapsed < 3600) {
+          landmarkSets = [diagnosticPalmLandmarks(0.574, 0.354)];
+        } else {
+          landmarkSets = [];
+        }
+        if (landmarkSets.length) categories = landmarkSets.map(() => category("Open_Palm"));
+        else categories = [];
+        handednesses = landmarkSets.map(() => [{ ...category("Left"), score: 1 }]);
+      } else if (diagnosticScenario === "manipulation" || diagnosticScenario === "scene-manipulation") {
         const cameraX = (displayX: number) => mirrorCameraRef.current ? 1 - displayX : displayX;
         const activationWindow = diagnosticScenario === "scene-manipulation" ? 2500 : 1200;
-        categories = elapsed < activationWindow ? [category("Pointing_Up")] : [];
+        categories = elapsed < activationWindow ? [category("Thumb_Up")] : [];
         landmarkSets = [];
-        if (diagnosticScenario === "corner-snap" && elapsed >= 2500 && elapsed < 3200) {
-          landmarkSets = [diagnosticPalmLandmarks(cameraX(0.84), 0.18)];
-        } else if (diagnosticScenario === "corner-snap" && elapsed >= 3200 && elapsed < 5200) {
-          const progress = (elapsed - 3200) / 2000;
-          landmarkSets = [diagnosticPalmLandmarks(cameraX(0.84 - progress * 0.585), 0.18 + progress * 0.065)];
-        } else if (diagnosticScenario === "corner-snap" && elapsed >= 5200 && elapsed < 6500) {
-          landmarkSets = [diagnosticPalmLandmarks(cameraX(0.255), 0.245)];
-        } else if (diagnosticScenario === "scene-manipulation" && elapsed >= 3500 && elapsed < 4200) {
+        if (diagnosticScenario === "scene-manipulation" && elapsed >= 3500 && elapsed < 4200) {
           landmarkSets = [diagnosticPalmLandmarks(cameraX(0.5), 0.5)];
         } else if (diagnosticScenario === "scene-manipulation" && elapsed >= 4200 && elapsed < 5600) {
           const progress = (elapsed - 4200) / 1400;
@@ -2367,9 +4176,12 @@ export default function App() {
           categories = [category("Closed_Fist")];
         } else if (elapsed >= 2500 && elapsed < 3200) {
           landmarkSets = [diagnosticPalmLandmarks(cameraX(0.84), 0.18)];
-        } else if (elapsed >= 3200 && elapsed < 5000) {
-          const progress = (elapsed - 3200) / 1800;
-          landmarkSets = [diagnosticPalmLandmarks(cameraX(0.84 - progress * 0.17), 0.18 + progress * 0.2)];
+        } else if (elapsed >= 3200 && elapsed < 4000) {
+          const progress = (elapsed - 3200) / 800;
+          landmarkSets = [diagnosticPalmLandmarks(cameraX(0.84 + progress * 0.1), 0.18)];
+        } else if (elapsed >= 4000 && elapsed < 5800) {
+          const progress = (elapsed - 4000) / 1800;
+          landmarkSets = [diagnosticPalmLandmarks(cameraX(0.94 - progress * 0.27), 0.18 + progress * 0.2)];
         } else if (elapsed >= 6500 && elapsed < 7500) {
           landmarkSets = [diagnosticPalmLandmarks(cameraX(0.59), 0.38), diagnosticPalmLandmarks(cameraX(0.75), 0.38)];
         } else if (elapsed >= 7500 && elapsed < 9500) {
@@ -2405,6 +4217,9 @@ export default function App() {
         ?? triggerResults.filter((item) => item.gesture !== null && item.gesture !== "palm").sort((a, b) => (b.confidence * b.quality) - (a.confidence * a.quality))[0]
         ?? { gesture: null, source: "none" as const, confidence: 0, quality: 1 };
       const stable = stabilizerRef.current.update(rawResolution, now);
+      // Resolve an open palm after spatial hit-testing: over a visual it grabs,
+      // while in empty space it summons the media deck.
+      const deckEvent = assetDeckGateRef.current.suppress();
       const palmObservations: PalmObservation[] = [];
       handResults.forEach((hand, index) => {
         if (hand.gesture !== "palm" || hand.confidence * hand.quality < 0.46) return;
@@ -2414,7 +4229,250 @@ export default function App() {
         palmObservations.push({ id: handedness, point: mapControlPointForMirror(point, mirrorCameraRef.current) });
       });
       const palmPoints = palmSignalTrackerRef.current.update(palmObservations, now);
+      const deckCapacity = MAX_STYLE_ASSETS;
+      const deckAssetCount = assetsRef.current.filter((asset) => asset.kind !== "text").length + (screenSettingsRef.current ? 1 : 0);
+      const maximumDeckOffset = Math.max(0, deckAssetCount - deckCapacity);
+      const scrollHandIndex = handResults.findIndex((hand) => hand.gesture === "palm");
+      const scrollPalmPoint = scrollHandIndex >= 0 ? palmControlPoint(landmarkSets[scrollHandIndex] ?? []) : null;
+      const mappedScrollPalm = scrollPalmPoint ? mapControlPointForMirror(scrollPalmPoint, mirrorCameraRef.current) : null;
+      const scrollPalmCanvasPoint = mappedScrollPalm ? { x: mappedScrollPalm.x * outputCanvas.width, y: mappedScrollPalm.y * outputCanvas.height } : null;
+      const openOrbit = widgetsRef.current.find((widget) => widget.kind === "orbit" && widget.visible && widget.open);
+      let orbitScrollActive = false;
+      if (scrollHandIndex >= 0 && openOrbit) {
+        const orbitLandmarks = landmarkSets[scrollHandIndex] ?? [];
+        const orbitTips = [orbitLandmarks[8], orbitLandmarks[12], orbitLandmarks[16], orbitLandmarks[20]].filter((tip): tip is Landmark => Boolean(tip));
+        if (orbitTips.length >= 2) {
+          const rawOrbitPoint = { x: orbitTips.reduce((sum, tip) => sum + tip.x, 0) / orbitTips.length, y: orbitTips.reduce((sum, tip) => sum + tip.y, 0) / orbitTips.length };
+          const mappedOrbitPoint = mapControlPointForMirror(rawOrbitPoint, mirrorCameraRef.current);
+          const orbitCanvasPoint = { x: mappedOrbitPoint.x * outputCanvas.width, y: mappedOrbitPoint.y * outputCanvas.height };
+          const nearOrbit = pointNearOrbit(openOrbit, orbitCanvasPoint, outputCanvas.width, outputCanvas.height, Math.min(outputCanvas.width, outputCanvas.height) * .045);
+          if (nearOrbit) {
+            orbitScrollActive = true;
+            suppressDeckFocusUntilRef.current = now + 650;
+            const previous = orbitScrollRef.current;
+            if (previous?.widgetId === openOrbit.id) {
+              const maximum = Math.max(0, (openOrbit.assetIds?.length ?? 0) - 5);
+              const nextOffset = Math.min(maximum, Math.max(0, (openOrbit.orbitOffset ?? 0) + (mappedOrbitPoint.y - previous.lastY) * 8));
+              if (Math.abs(nextOffset - (openOrbit.orbitOffset ?? 0)) > .006) {
+                widgetsRef.current = widgetsRef.current.map((widget) => widget.id === openOrbit.id ? { ...widget, orbitOffset: nextOffset } : widget);
+                setWidgets(widgetsRef.current);
+              }
+            }
+            orbitScrollRef.current = { widgetId: openOrbit.id, lastY: mappedOrbitPoint.y };
+          }
+        }
+      }
+      if (!orbitScrollActive) orbitScrollRef.current = null;
+      const activeScrollRect = activeGeometryRef.current?.rect;
+      const palmCenterOverActive = Boolean(scrollPalmCanvasPoint && activeScrollRect && scrollPalmCanvasPoint.x >= activeScrollRect.x && scrollPalmCanvasPoint.x <= activeScrollRect.x + activeScrollRect.width && scrollPalmCanvasPoint.y >= activeScrollRect.y && scrollPalmCanvasPoint.y <= activeScrollRect.y + activeScrollRect.height);
+      if (!orbitScrollActive && scrollHandIndex >= 0 && !palmCenterOverActive && videoStyleRef.current !== "spatial" && videoStyleRef.current !== "split-decks" && assetDeckVisibleRef.current && deckAssetCount > deckCapacity) {
+        const scrollLandmarks = scrollHandIndex >= 0 ? landmarkSets[scrollHandIndex] ?? [] : [];
+        const tips = [scrollLandmarks[8], scrollLandmarks[12], scrollLandmarks[16], scrollLandmarks[20]].filter((tip): tip is Landmark => Boolean(tip));
+        const rawScrollPoint = tips.length >= 2
+          ? { x: tips.reduce((sum, tip) => sum + tip.x, 0) / tips.length, y: tips.reduce((sum, tip) => sum + tip.y, 0) / tips.length }
+          : null;
+        if (rawScrollPoint) {
+          const mapped = mapControlPointForMirror(rawScrollPoint, mirrorCameraRef.current);
+          const beltWindow = currentVideoStyleWindow();
+          const beltLayout = videoStyleLayout(videoStyleRef.current, outputCanvas.width, outputCanvas.height, beltWindow.assets.length, { offset: beltWindow.offset, windowStart: beltWindow.windowStart, total: beltWindow.total });
+          const beltPoint = { x: mapped.x * outputCanvas.width, y: mapped.y * outputCanvas.height };
+          const engagementPadding = Math.min(outputCanvas.width, outputCanvas.height) * (deckScrollEngagedRef.current ? 0.08 : 0.0425);
+          const nearBelt = pointNearStyleDeck(beltLayout, beltPoint, engagementPadding);
+          if (nearBelt) {
+            suppressDeckFocusUntilRef.current = now + 650;
+            const horizontalDeck = videoStyleRef.current === "top-shelf" || videoStyleRef.current === "center-shelf" || videoStyleRef.current === "bottom-shelf";
+            const axisPoint = horizontalDeck ? mapped.x : mapped.y;
+            const flickCandidate = deckFlickCandidateRef.current;
+            if (!flickCandidate || !deckScrollEngagedRef.current) {
+              deckFlickCandidateRef.current = { axisStart: axisPoint, lastAxis: axisPoint, startedAt: now };
+              deckScrollEngagedRef.current = true;
+            } else {
+              const filteredAxisPoint = flickCandidate.lastAxis + (axisPoint - flickCandidate.lastAxis) * 0.92;
+              const flickTravel = Math.abs(filteredAxisPoint - flickCandidate.axisStart);
+              const flickFastEnough = flickTravel >= 0.012 && now - flickCandidate.startedAt <= 520;
+              if (deckScrollEngagedRef.current || flickFastEnough) {
+                if (!deckScrollEngagedRef.current) {
+                  deckScrollEngagedRef.current = true;
+                  deckScrollControllerRef.current.drag(flickCandidate.lastAxis, Math.max(0, now - 16), maximumDeckOffset);
+                }
+                const scroll = deckScrollControllerRef.current.drag(filteredAxisPoint, now, maximumDeckOffset);
+                assetDeckOffsetRef.current = scroll.offset;
+                setAssetDeckOffset((current) => Math.abs(current - scroll.offset) < 0.006 ? current : scroll.offset);
+                pointFocusTrackerRef.current.reset();
+                setPointFocus(null);
+              }
+              deckFlickCandidateRef.current = { ...flickCandidate, lastAxis: filteredAxisPoint };
+            }
+          } else {
+            deckScrollEngagedRef.current = false;
+            deckFlickCandidateRef.current = null;
+            deckScrollControllerRef.current.release(now, maximumDeckOffset);
+          }
+        } else {
+          deckScrollEngagedRef.current = false;
+          deckFlickCandidateRef.current = null;
+          deckScrollControllerRef.current.release(now, maximumDeckOffset);
+        }
+      } else {
+        deckScrollEngagedRef.current = false;
+        deckFlickCandidateRef.current = null;
+        const scroll = deckScrollControllerRef.current.release(now, maximumDeckOffset);
+        assetDeckOffsetRef.current = scroll.offset;
+        if (scroll.moving) setAssetDeckOffset((current) => Math.abs(current - scroll.offset) < 0.006 ? current : scroll.offset);
+      }
+      const swipeDirection = swipeTrackerRef.current.update(palmPoints.length === 1 ? palmPoints[0] : null, now);
+      const swipeNavigationTriggered = swipeDirection
+        ? navigateDirector(swipeDirection === "left" ? 1 : -1)
+        : false;
+      if (swipeNavigationTriggered) {
+        palmCommandTrackerRef.current.reset();
+        manipulationGuardUntilRef.current = now + 520;
+        setPhaseMessage(swipeDirection === "left" ? "Next scene" : "Previous scene");
+      }
       const movementPoints = palmPoints.map((point) => mapPointForMovementReach(point, "comfort", aspectRef.current));
+      const visibleCamera = applyCameraReflow(
+        cameraFrameViewport(outputCanvas.width, outputCanvas.height, cameraFrameRef.current),
+        cameraReflowFrameRef.current
+      );
+      const directPalmPoints = palmPoints.map((point) => mapControlPointToStageViewport(
+        point,
+        visibleCamera,
+        outputCanvas.width,
+        outputCanvas.height,
+        video.videoWidth || grantedRef.current?.width || visibleCamera.width,
+        video.videoHeight || grantedRef.current?.height || visibleCamera.height
+      ));
+      const pointerHandIndex = handResults
+        .map((hand, index) => ({ hand, index }))
+        .filter(({ hand }) => hand.gesture === "one")
+        .sort((a, b) => b.hand.confidence * b.hand.quality - a.hand.confidence * a.hand.quality)[0]?.index;
+      if (pointerHandIndex !== undefined && !deckScrollEngagedRef.current && now >= suppressDeckFocusUntilRef.current) {
+        const fingertip = pointerHandIndex === undefined ? undefined : landmarkSets[pointerHandIndex]?.[8];
+        if (fingertip) {
+          const cameraPoint = mapControlPointForMirror({ x: fingertip.x, y: fingertip.y }, mirrorCameraRef.current);
+          // Keep the cursor on the visibly recorded fingertip when a camera
+          // border/matte makes the live feed smaller than the full canvas.
+          const stagePoint = mapControlPointToStageViewport(
+            cameraPoint,
+            visibleCamera,
+            outputCanvas.width,
+            outputCanvas.height,
+            video.videoWidth || grantedRef.current?.width || visibleCamera.width,
+            video.videoHeight || grantedRef.current?.height || visibleCamera.height
+          );
+          if (operatorShelfOpenRef.current) {
+            const shelfRects = operatorShelfRects(operatorShelfItemsRef.current, aspectRef.current === "portrait");
+            const shelfTargetId = operatorShelfTargetAt(shelfRects, stagePoint);
+            const shelfTarget = operatorShelfItemsRef.current.find((item) => item.id === shelfTargetId) ?? null;
+            const shelfUpdate = operatorShelfPointTrackerRef.current.update(shelfTargetId, now);
+            setOperatorShelfTargetId(shelfTargetId);
+            setOperatorShelfProgress(shelfUpdate.progress);
+            setPointFocus({ x: stagePoint.x, y: stagePoint.y, progress: shelfUpdate.progress, targetName: shelfTarget?.name });
+            spotlightRef.current = null;
+            spotlightRectRef.current = null;
+            setSpotlight(null);
+            circleMorphTrackerRef.current.update(null, null, now);
+            setMorphGestureProgress((current) => current ? 0 : current);
+            if (shelfUpdate.activate && shelfTarget) chooseShelfTargetRef.current(shelfTarget);
+          } else if (shelfPointCarryoverRef.current) {
+            // The point that chose a shelf card cannot leak into stage focus.
+            // The creator must lower/change the pointing pose before a later
+            // point can spotlight or enlarge anything on stage.
+            pointFocusTrackerRef.current.update(null, now);
+            operatorShelfPointTrackerRef.current.update(null, now);
+            spotlightRef.current = null;
+            spotlightRectRef.current = null;
+            setSpotlight((current) => current ? null : current);
+            circleMorphTrackerRef.current.update(null, null, now);
+            setMorphGestureProgress((current) => current ? 0 : current);
+            setPointFocus({ x: stagePoint.x, y: stagePoint.y, progress: 0, targetName: armedVoiceTargetRef.current?.name });
+          } else {
+            const point = { x: stagePoint.x * outputCanvas.width, y: stagePoint.y * outputCanvas.height };
+            const pointStyleWindow = currentVideoStyleWindow();
+            const pointStyleAssets = pointStyleWindow.assets;
+            const pointStyleLayout = videoStyleLayout(videoStyleRef.current, outputCanvas.width, outputCanvas.height, pointStyleAssets.length, { offset: pointStyleWindow.offset, windowStart: pointStyleWindow.windowStart, total: pointStyleWindow.total });
+            const activeId = activeLayerIdRef.current;
+            const focusedStyleAssetId = activeId && pointStyleAssets.some((asset) => asset.id === activeId) ? activeId : null;
+            const liveRect = liveStickerRect(outputCanvas.width, outputCanvas.height);
+            const liveStickerTarget = screenSettingsRef.current
+              && point.x >= liveRect.x && point.x <= liveRect.x + liveRect.width
+              && point.y >= liveRect.y && point.y <= liveRect.y + liveRect.height
+              ? screenOverlayAsset(screenSettingsRef.current, screenOverlayRef.current)
+              : null;
+            const openOrbitWidget = widgetsRef.current.find((widget) => widget.kind === "orbit" && widget.visible && widget.open);
+            const orbitTarget = liveStickerTarget ? null : openOrbitWidget ? orbitTargetAtPoint(openOrbitWidget, assetsRef.current, scenesRef.current, point, outputCanvas.width, outputCanvas.height) : null;
+            const orbitTargetAsset = orbitTarget?.kind === "asset" ? orbitTarget.asset : null;
+            const orbitTargetScene = orbitTarget?.kind === "scene" ? orbitTarget.scene : null;
+            // Desk objects own their pixels. A classic-deck card behind the
+            // charm must never steal the point intended to open the orbit.
+            const targetWidget = liveStickerTarget || orbitTarget ? null : widgetAtPoint(widgetsRef.current, point, outputCanvas.width, outputCanvas.height);
+            const candidateTargetAsset = liveStickerTarget ?? orbitTargetAsset ?? (!targetWidget && assetDeckVisibleRef.current
+              ? styleAssetAtPoint(pointStyleLayout, pointStyleAssets, point, focusedStyleAssetId)
+              : null);
+            const targetAsset = now < morphFocusLockUntilRef.current ? null : candidateTargetAsset;
+            const focusRect = pointStyleLayout.focus;
+            const fingerBehindFocusedAsset = focusedStyleAssetId && (videoStyleRef.current === "left-rail" || videoStyleRef.current === "right-rail")
+              && point.x >= focusRect.x && point.x <= focusRect.x + focusRect.width && point.y >= focusRect.y && point.y <= focusRect.y + focusRect.height
+              ? pointStyleAssets.find((asset) => asset.id === focusedStyleAssetId)
+              : null;
+            const targetName = targetWidget?.title ?? orbitTargetScene?.name ?? targetAsset?.name ?? (fingerBehindFocusedAsset ? `Behind ${fingerBehindFocusedAsset.name}` : undefined);
+            const widgetFocusUpdate = widgetPointTrackerRef.current.update(targetWidget?.id ?? null, now);
+            const assetFocusUpdate = pointFocusTrackerRef.current.update(targetWidget ? null : orbitTargetScene ? sceneLayerId(orbitTargetScene.id) : targetAsset?.id ?? null, now);
+            const focusUpdate = targetWidget ? widgetFocusUpdate : assetFocusUpdate;
+            const nextPointFocus = { x: stagePoint.x, y: stagePoint.y, progress: focusUpdate.progress, targetName };
+            setPointFocus((current) => current
+              && Math.abs(current.x - nextPointFocus.x) < 0.008
+              && Math.abs(current.y - nextPointFocus.y) < 0.008
+              && Math.abs(current.progress - nextPointFocus.progress) < 0.08
+              && current.targetName === nextPointFocus.targetName
+              ? current
+              : nextPointFocus);
+            spotlightRef.current = null;
+            spotlightRectRef.current = null;
+            setSpotlight((current) => current ? null : current);
+            if (focusUpdate.activate) {
+              if (targetWidget) activateWidgetRef.current(targetWidget);
+              else if (targetAsset) {
+                if (orbitTargetAsset && openOrbitWidget) updateCanvasWidget(openOrbitWidget.id, { open: false });
+                focusVideoStyleAssetRef.current(targetAsset);
+              } else if (orbitTargetScene) {
+                if (openOrbitWidget) updateCanvasWidget(openOrbitWidget.id, { open: false });
+                const layer = resolveLayer(sceneLayerId(orbitTargetScene.id), assetsRef.current, scenesRef.current);
+                if (layer) activateStudioLayerRef.current(layer);
+              }
+            }
+
+            // Pointing is selection-only. It must never move, resize, morph or
+            // otherwise alter an asset that is already on the stage.
+            circleMorphTrackerRef.current.update(null, null, now);
+            setMorphGestureProgress((current) => current ? 0 : current);
+          }
+        } else {
+          shelfPointCarryoverRef.current = false;
+          pointFocusTrackerRef.current.update(null, now);
+          operatorShelfPointTrackerRef.current.update(null, now);
+          setOperatorShelfTargetId(null);
+          setOperatorShelfProgress(0);
+          spotlightRef.current = null;
+          spotlightRectRef.current = null;
+          setSpotlight((current) => current ? null : current);
+          circleMorphTrackerRef.current.update(null, null, now);
+          setMorphGestureProgress((current) => current ? 0 : current);
+          setPointFocus(null);
+        }
+      } else {
+        shelfPointCarryoverRef.current = false;
+        pointFocusTrackerRef.current.update(null, now);
+        operatorShelfPointTrackerRef.current.update(null, now);
+        setOperatorShelfTargetId(null);
+        setOperatorShelfProgress(0);
+        spotlightRef.current = null;
+        spotlightRectRef.current = null;
+        setSpotlight((current) => current ? null : current);
+        circleMorphTrackerRef.current.update(null, null, now);
+        setMorphGestureProgress((current) => current ? 0 : current);
+        setPointFocus((current) => current ? null : current);
+      }
       const displayedGesture = stable.gesture ?? (palmPoints.length ? "palm" : null);
       const nextDetected = { gesture: displayedGesture, confidence: stable.gesture ? stable.confidence : rawResolution.confidence, source: palmPoints.length ? "palm-control" : rawResolution.source };
       const detectedPublishInterval = recordingRef.current ? 320 : 180;
@@ -2429,25 +4487,61 @@ export default function App() {
           : nextDetected);
       }
 
+      palmRestoreRef.current = { since: 0, latched: false };
+      if (palmPoints.length) {
+        pointFocusTrackerRef.current.reset();
+        widgetPointTrackerRef.current.reset();
+        setPointFocus((current) => current ? null : current);
+      }
+
       let event;
       if (stable.gesture === "fist") {
+        clearArmedVoiceTarget();
+        operatorShelfOpenRef.current = false;
+        setOperatorShelfOpen(false);
+        setOperatorShelfTargetId(null);
+        setOperatorShelfProgress(0);
+        operatorShelfPointTrackerRef.current.reset();
+        palmCommandTrackerRef.current.reset();
+        shelfPointCarryoverRef.current = false;
+        spotlightRef.current = null;
+        spotlightRectRef.current = null;
+        setSpotlight(null);
         manipulationTrackerRef.current.reset();
         palmSignalTrackerRef.current.reset();
         sceneMemberTargetIdRef.current = null;
+        sceneMemberMissSinceRef.current = null;
         setSceneMemberTargetId(null);
         setManipulation({ mode: "idle", progress: 0 });
-        setSceneTemplateSnapped(false);
         event = gateRef.current.update("fist", now);
       } else {
+        const trackerModeBeforeSelection = manipulationTrackerRef.current.currentMode();
+        const palmTargetLocked = trackerModeBeforeSelection === "dragging"
+          || trackerModeBeforeSelection === "scaling"
+          || trackerModeBeforeSelection === "arming-scale";
+        // A palm manipulates the asset that pointing already focused. It never
+        // changes selection, which avoids fighting the user's intended target.
+        void palmTargetLocked;
+
+        const pendingVoiceTarget = armedVoiceTargetRef.current?.source === "shelf" ? armedVoiceTargetRef.current : null;
         const active = activeLayerIdRef.current === SCREEN_OVERLAY_ID && screenSettingsRef.current && screenOverlayRef.current.visible
           ? { id: SCREEN_OVERLAY_ID, kind: "asset" as const, asset: screenOverlayAsset(screenSettingsRef.current, screenOverlayRef.current) }
           : activeLayerIdRef.current ? resolveLayer(activeLayerIdRef.current, assetsRef.current, scenesRef.current) : null;
         let manipulationUpdate: ManipulationUpdate = { mode: "idle", progress: 0, suppressActivation: false };
+        // One palm never edits placement. Two palms are an explicit resize
+        // intent, keeping the no-teleport rule while restoring scale control.
+        const allowPalmAssetManipulation = palmPoints.length >= 2;
+        if (!allowPalmAssetManipulation) manipulationTrackerRef.current.reset();
 
-        if (active && now >= manipulationGuardUntilRef.current) {
+        // Confirmation always outranks manipulation. Previously a live asset
+        // could capture the palm before the armed voice cue saw it.
+        // Palm remains available for deck/orbit scrolling, but it no longer
+        // edits an asset transform. This removes the old jump-to-palm effect.
+        if (allowPalmAssetManipulation && !pendingVoiceTarget && active && palmPoints.length >= 1 && now >= manipulationGuardUntilRef.current) {
           let base: Rect | null = null;
           let rect: Rect | null = null;
           let currentTransform: StudioAsset["transform"];
+          let transformBounds: Rect | undefined;
           let sceneMemberContext: { memberId: string; groupRect: Rect } | null = null;
           let sourceWidth: number | undefined;
           let sourceHeight: number | undefined;
@@ -2457,8 +4551,23 @@ export default function App() {
               : active.asset.kind === "image" ? imagesRef.current.get(active.asset.id) : active.asset.kind === "video" ? videosRef.current.get(active.asset.id) : undefined;
             sourceWidth = active.asset.id === SCREEN_OVERLAY_ID ? screenSettingsRef.current?.width : source instanceof HTMLImageElement ? source.naturalWidth : source instanceof HTMLVideoElement ? source.videoWidth : undefined;
             sourceHeight = active.asset.id === SCREEN_OVERLAY_ID ? screenSettingsRef.current?.height : source instanceof HTMLImageElement ? source.naturalHeight : source instanceof HTMLVideoElement ? source.videoHeight : undefined;
-            base = baseAssetRect(outputCanvas.width, outputCanvas.height, active.asset, sourceWidth, sourceHeight);
-            rect = applyAssetTransform(outputCanvas.width, outputCanvas.height, base, active.asset.transform);
+            const currentStyleWindow = currentVideoStyleWindow();
+            const currentStyleAssets = currentStyleWindow.assets;
+            if (currentStyleAssets.some((asset) => asset.id === active.asset.id)) {
+              const styleLayout = videoStyleLayout(videoStyleRef.current, outputCanvas.width, outputCanvas.height, currentStyleAssets.length, { offset: currentStyleWindow.offset, windowStart: currentStyleWindow.windowStart, total: currentStyleWindow.total });
+              base = styleFocusBaseRect(styleLayout, active.asset, sourceWidth, sourceHeight);
+              transformBounds = styleTransformBounds(styleLayout);
+            } else {
+              base = baseAssetRect(outputCanvas.width, outputCanvas.height, active.asset, sourceWidth, sourceHeight);
+              const currentLayers = visibleLayersForComposition(liveLayerIdsRef.current
+                .map((id) => resolveLayer(id, assetsRef.current, scenesRef.current))
+                .filter((layer): layer is StudioLayer => Boolean(layer)));
+              const panelRatio = active.asset.placement === "left" || active.asset.placement === "right"
+                ? cameraReflowPanelRatioForSide(currentLayers, active.asset.placement)
+                : null;
+              transformBounds = reflowAssetPanelRect(outputCanvas.width, outputCanvas.height, active.asset, panelRatio ?? undefined) ?? undefined;
+            }
+            rect = applyAssetTransform(outputCanvas.width, outputCanvas.height, base, active.asset.transform, transformBounds);
             currentTransform = active.asset.transform ?? {
               x: (rect.x + rect.width / 2) / outputCanvas.width,
               y: (rect.y + rect.height / 2) / outputCanvas.height,
@@ -2470,28 +4579,42 @@ export default function App() {
             const displayRects = sceneMemberDisplayRects(active.scene, groupRect, memberBases);
             const rectById = new Map(active.scene.memberIds.map((id, index) => [id, displayRects[index]]));
             const soloId = sceneSoloRef.current[active.scene.id];
-            const eligibleOrder = soloId ? [soloId] : sceneMemberDrawOrder(active.scene);
+            const eligibleOrder = (soloId ? [soloId] : sceneMemberDrawOrder(active.scene)).filter((id) => !completedVideoIdsRef.current.has(id));
             let targetId = sceneMemberTargetIdRef.current;
-            if (targetId && (!active.scene.memberIds.includes(targetId) || (soloId && targetId !== soloId))) targetId = null;
-            if (!targetId && movementPoints.length) {
-              const paddingX = outputCanvas.width * 0.018;
-              const paddingY = outputCanvas.height * 0.018;
-              const reversedOrder = [...eligibleOrder].reverse();
-              const containsPalm = (id: string, points: typeof palmPoints) => {
-                const targetRect = rectById.get(id);
-                return Boolean(targetRect && points.some((point) => {
-                  const x = point.x * outputCanvas.width;
-                  const y = point.y * outputCanvas.height;
-                  return x >= targetRect.x - paddingX && x <= targetRect.x + targetRect.width + paddingX
-                    && y >= targetRect.y - paddingY && y <= targetRect.y + targetRect.height + paddingY;
-                }));
-              };
-              const directTargetId = reversedOrder.find((id) => containsPalm(id, palmPoints));
-              targetId = directTargetId ?? reversedOrder.find((id) => containsPalm(id, movementPoints)) ?? null;
-              if (targetId) {
+            if (targetId && (!active.scene.memberIds.includes(targetId) || completedVideoIdsRef.current.has(targetId) || (soloId && targetId !== soloId))) {
+              manipulationTrackerRef.current.reset();
+              targetId = null;
+              sceneMemberTargetIdRef.current = null;
+              sceneMemberMissSinceRef.current = null;
+              setSceneMemberTargetId(null);
+            }
+            const trackerMode = manipulationTrackerRef.current.currentMode();
+            const memberLocked = trackerMode === "dragging" || trackerMode === "scaling" || trackerMode === "arming-scale";
+            const directTargetId = sceneMemberAtPalmCenter(
+              eligibleOrder,
+              rectById,
+              directPalmPoints,
+              outputCanvas.width,
+              outputCanvas.height
+            );
+            if (directTargetId) sceneMemberMissSinceRef.current = null;
+            if (!memberLocked) {
+              if (directTargetId && directTargetId !== targetId) {
                 manipulationTrackerRef.current.reset();
-                sceneMemberTargetIdRef.current = targetId;
-                setSceneMemberTargetId(targetId);
+                targetId = directTargetId;
+                sceneMemberTargetIdRef.current = directTargetId;
+                setSceneMemberTargetId(directTargetId);
+              } else if (!directTargetId && targetId) {
+                if (sceneMemberMissSinceRef.current === null) sceneMemberMissSinceRef.current = now;
+                if (now - sceneMemberMissSinceRef.current >= SCENE_MEMBER_SELECTION_GRACE_MS) {
+                  manipulationTrackerRef.current.reset();
+                  targetId = null;
+                  sceneMemberTargetIdRef.current = null;
+                  sceneMemberMissSinceRef.current = null;
+                  setSceneMemberTargetId(null);
+                }
+              } else if (!targetId) {
+                sceneMemberMissSinceRef.current = null;
               }
             }
             if (targetId) {
@@ -2522,37 +4645,24 @@ export default function App() {
               { x: rect.x / outputCanvas.width, y: rect.y / outputCanvas.height, width: rect.width / outputCanvas.width, height: rect.height / outputCanvas.height },
               currentTransform,
               movementPoints,
-              palmPoints
+              directPalmPoints
             );
           }
 
           if (base && currentTransform && manipulationUpdate.transform) {
-            const target = constrainAssetTransform(outputCanvas.width, outputCanvas.height, base, manipulationUpdate.transform);
-            const snappedScale = active.kind === "scene" && sceneMemberContext && manipulationUpdate.mode === "scaling"
-              ? snapScaleToTemplate(target.scale)
-              : target.scale;
-            const templateSnapped = active.kind === "scene"
-              && Boolean(sceneMemberContext)
-              && manipulationUpdate.mode === "scaling"
-              && snappedScale === 1
-              && Math.abs(target.scale - 1) > 1e-9;
-            setSceneTemplateSnapped((current) => current === templateSnapped ? current : templateSnapped);
-            const desired = { ...target, scale: snappedScale };
-            const borderResult = manipulationUpdate.mode === "dragging"
-              ? snapTransformToCameraBorder(
-                  outputCanvas.width,
-                  outputCanvas.height,
-                  base,
-                  desired,
-                  cameraFrameViewport(outputCanvas.width, outputCanvas.height, cameraFrameRef.current)
-                )
-              : { transform: desired, target: null };
-            setCameraBorderSnap((current) => current === borderResult.target ? current : borderResult.target);
-            const smoothing = borderResult.target ? 1 : manipulationUpdate.mode === "scaling" ? 0.76 : 0.84;
+            const scaleOnlyTransform = {
+              ...manipulationUpdate.transform,
+              x: currentTransform.x,
+              y: currentTransform.y,
+              rotation: currentTransform.rotation
+            };
+            const target = constrainAssetTransform(outputCanvas.width, outputCanvas.height, base, scaleOnlyTransform, transformBounds);
+            const smoothing = manipulationUpdate.mode === "scaling" ? 0.76 : 0.84;
             const smoothed = {
-              x: currentTransform.x + (borderResult.transform.x - currentTransform.x) * smoothing,
-              y: currentTransform.y + (borderResult.transform.y - currentTransform.y) * smoothing,
-              scale: templateSnapped ? 1 : currentTransform.scale + (borderResult.transform.scale - currentTransform.scale) * smoothing
+              x: currentTransform.x + (target.x - currentTransform.x) * smoothing,
+              y: currentTransform.y + (target.y - currentTransform.y) * smoothing,
+              scale: currentTransform.scale + (target.scale - currentTransform.scale) * smoothing,
+              rotation: currentTransform.rotation
             };
             if (active.kind === "asset") commitAssetUpdates(active.asset.id, { transform: smoothed });
             else if (sceneMemberContext) {
@@ -2566,61 +4676,80 @@ export default function App() {
             }
           }
           if (manipulationUpdate.ended) {
-            if (manipulationUpdate.endedMode === "scaling" && active.kind === "asset") {
-              const latest = assetsRef.current.find((asset) => asset.id === active.asset.id) ?? active.asset;
-              const latestBase = baseAssetRect(outputCanvas.width, outputCanvas.height, latest, sourceWidth, sourceHeight);
-              const latestRect = applyAssetTransform(outputCanvas.width, outputCanvas.height, latestBase, latest.transform);
-              const snappedSize = snappedAssetSize(outputCanvas.width, outputCanvas.height, latestRect);
-              if (snappedSize) commitAssetUpdates(latest.id, { size: snappedSize, transform: undefined });
-            }
             sceneMemberTargetIdRef.current = null;
+            sceneMemberMissSinceRef.current = null;
             setSceneMemberTargetId(null);
-            setSceneTemplateSnapped(false);
             manipulationGuardUntilRef.current = now + 650;
             gateRef.current.disarm(now);
             stabilizerRef.current.reset();
-          } else if (active.kind === "scene" && !palmPoints.length && manipulationUpdate.mode === "idle" && sceneMemberTargetIdRef.current) {
-            sceneMemberTargetIdRef.current = null;
-            setSceneMemberTargetId(null);
-            setSceneTemplateSnapped(false);
           }
-        } else if (!active) {
+        } else if (!active || pendingVoiceTarget) {
           manipulationTrackerRef.current.reset();
           sceneMemberTargetIdRef.current = null;
+          sceneMemberMissSinceRef.current = null;
           setSceneMemberTargetId(null);
-          setSceneTemplateSnapped(false);
         }
 
         setManipulation((current) => current.mode === manipulationUpdate.mode && Math.abs(current.progress - manipulationUpdate.progress) < 0.06
           ? current
           : { mode: manipulationUpdate.mode, progress: manipulationUpdate.progress });
 
-        const routedLayer = stable.gesture && stable.gesture !== "palm"
-          ? findGestureLayer(stable.gesture, assetsRef.current, scenesRef.current)
-          : null;
-        const suppressActivation = manipulationUpdate.suppressActivation || now < manipulationGuardUntilRef.current;
+        const palmAvailableForCommand = palmPoints.length > 0
+          && !swipeNavigationTriggered
+          && manipulationUpdate.mode === "idle"
+          && !manipulationUpdate.suppressActivation
+          && now >= manipulationGuardUntilRef.current;
+        const palmCommand = palmCommandTrackerRef.current.update(
+          palmAvailableForCommand,
+          now,
+          260
+        );
+        if (palmAvailableForCommand) setOperatorShelfProgress(palmCommand.progress);
+        else if (!operatorShelfOpenRef.current) setOperatorShelfProgress(0);
+        const thumbDeckCommand = thumbDeckTrackerRef.current.update(
+          stable.gesture === "thumb" && palmPoints.length === 0 && now >= manipulationGuardUntilRef.current,
+          now,
+          260
+        );
+        if (palmCommand.trigger && pendingVoiceTarget) {
+          revealVoiceTargetRef.current(pendingVoiceTarget, "voice");
+          gateRef.current.disarm(now);
+        } else if (thumbDeckCommand.trigger && assetDeckModeRef.current === "command" && !assetDeckVisibleRef.current) {
+          assetDeckVisibleRef.current = true;
+          setAssetDeckVisible(true);
+          setPhaseMessage("Media deck open — point at a visual");
+        }
+
+        const suppressActivation = stable.gesture === "thumb" || palmPoints.length > 0 || Boolean(deckEvent.trigger) || swipeNavigationTriggered || manipulationUpdate.suppressActivation || palmCommand.trigger || thumbDeckCommand.trigger || now < manipulationGuardUntilRef.current;
         event = suppressActivation
           ? gateRef.current.suppress()
-          : gateRef.current.update(stable.gesture, now, Boolean(routedLayer));
+          : gateRef.current.update(stable.gesture, now, stable.gesture !== "palm");
       }
       setHoldProgress((current) => {
         const boundaryChanged = (event.progress === 0 && current !== 0) || (event.progress === 1 && current !== 1);
         return !boundaryChanged && Math.abs(current - event.progress) < 0.07 ? current : event.progress;
       });
       setArmed(event.armed);
-      if (event.hide) hideLayer();
-      if (event.trigger) {
-        const layer = findGestureLayer(event.trigger, assetsRef.current, scenesRef.current);
-        if (layer) activateStudioLayer(layer);
+      if (event.hide) {
+        if (activeLayerIdRef.current) hideLayer();
+        else if (assetDeckModeRef.current === "command" && assetDeckVisibleRef.current) {
+          assetDeckVisibleRef.current = false;
+          setAssetDeckVisible(false);
+          setPointFocus(null);
+          pointFocusTrackerRef.current.update(null, now);
+          setPhaseMessage("Media deck hidden — camera is full stage");
+        }
       }
+      else if (event.trigger) activateGestureCue(event.trigger as GestureId);
     };
 
-    const infer = async (now: number) => {
-      if (stopped || busy || now - lastInferenceAt < 70 || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) return;
+    const infer = async (now: number, source: HTMLVideoElement | VideoFrame = video) => {
+      const sourceReady = "readyState" in source ? source.readyState >= 2 : source.displayWidth > 0 && source.displayHeight > 0;
+      if (stopped || busy || now - lastInferenceAt < 90 || !sourceReady) return;
       busy = true;
       lastInferenceAt = now;
       try {
-        context.drawImage(video, 0, 0, 640, 360);
+        context.drawImage(source, 0, 0, 640, 360);
         processResult(await recognizer.recognize(inferenceCanvas, now), now);
       } catch (error) {
         if (!stopped) console.error("Gesture inference frame failed", error);
@@ -2629,27 +4758,60 @@ export default function App() {
       }
     };
 
-    const schedule = () => {
+    const scheduleDisplayFrames = () => {
       if (stopped) return;
       if (typeof video.requestVideoFrameCallback === "function") {
         frameCallbackId = video.requestVideoFrameCallback((now) => {
-          schedule();
+          scheduleDisplayFrames();
           void infer(now);
         });
       } else {
         animationId = requestAnimationFrame((now) => {
-          schedule();
+          scheduleDisplayFrames();
           void infer(now);
         });
       }
     };
-    schedule();
+    const startDisplaySchedule = () => {
+      if (stopped || displayScheduleStarted) return;
+      displayScheduleStarted = true;
+      scheduleDisplayFrames();
+    };
+
+    if (Processor && cameraTrack) {
+      processorTrack = cameraTrack.clone();
+      processorReader = new Processor({ track: processorTrack, maxBufferSize: 1 }).readable.getReader();
+      void (async () => {
+        try {
+          while (!stopped && processorReader) {
+            const result = await processorReader.read();
+            if (result.done) break;
+            try {
+              await infer(performance.now(), result.value);
+            } finally {
+              result.value.close();
+            }
+          }
+          if (!stopped) startDisplaySchedule();
+        } catch (error) {
+          if (!stopped) {
+            console.error("Gesture camera frame processing stopped", error);
+            startDisplaySchedule();
+          }
+        }
+      })();
+    } else {
+      startDisplaySchedule();
+    }
+
     return () => {
       stopped = true;
       if (frameCallbackId !== null && typeof video.cancelVideoFrameCallback === "function") video.cancelVideoFrameCallback(frameCallbackId);
       if (animationId !== null) cancelAnimationFrame(animationId);
+      void processorReader?.cancel().catch(() => undefined);
+      processorTrack?.stop();
     };
-  }, [activateStudioLayer, commitAssetUpdates, commitSceneUpdates, diagnosticScenario, hideLayer, studioReady]);
+  }, [activateStudioLayer, clearArmedVoiceTarget, commitAssetUpdates, commitSceneUpdates, diagnosticScenario, focusStageLayer, granted, hideLayer, navigateDirector, studioReady]);
 
   useEffect(() => {
     if (!isRecording) return;
@@ -2667,9 +4829,24 @@ export default function App() {
     const timer = window.setInterval(() => {
       const next = readMicrophoneLevel(audioMixerRef.current);
       setMicrophoneLevel((current) => Math.abs(current - next) < 0.018 ? current : next);
+      if (recordingRef.current && recordingStartedAtRef.current) {
+        const marker = voiceEmphasisTrackerRef.current.update(next, Date.now() - recordingStartedAtRef.current);
+        if (marker) {
+          voiceEmphasisMarkersRef.current = [...voiceEmphasisMarkersRef.current, marker];
+          setVoiceEmphasisMarkers(voiceEmphasisMarkersRef.current);
+          setLiveWordSpark(marker);
+          if (liveWordSparkTimerRef.current !== null) window.clearTimeout(liveWordSparkTimerRef.current);
+          liveWordSparkTimerRef.current = window.setTimeout(() => {
+            setLiveWordSpark(null);
+            liveWordSparkTimerRef.current = null;
+          }, 950);
+        }
+      }
     }, 200);
     return () => {
       window.clearInterval(timer);
+      if (liveWordSparkTimerRef.current !== null) window.clearTimeout(liveWordSparkTimerRef.current);
+      liveWordSparkTimerRef.current = null;
       setMicrophoneLevel(0);
     };
   }, [studioReady]);
@@ -2677,6 +4854,11 @@ export default function App() {
   const startRecording = async () => {
     const canvas = outputCanvasRef.current;
     if (!canvas || !granted || !studioReadyRef.current || recordingRef.current || isFinalizing) return;
+    if (compositionDriver === "display") {
+      setErrorMessage("This browser cannot keep composing while Rii-Flow is hidden. Keep this window visible during recording.");
+    }
+    gestureSequenceCursorRef.current = {};
+    setActiveGestureCue(null);
     try {
       if (typeof MediaRecorder === "undefined") throw new Error("MediaRecorder is not available in this browser.");
       const mixer = audioMixerRef.current;
@@ -2691,6 +4873,13 @@ export default function App() {
         }
       }
       setRecordingBytes(0);
+      timelineEventsRef.current = [];
+      setTimelineEvents([]);
+      setSelectedDirectorEventId(null);
+      voiceEmphasisTrackerRef.current.reset();
+      voiceEmphasisMarkersRef.current = [];
+      setVoiceEmphasisMarkers([]);
+      setLiveWordSpark(null);
       setRecordingMime("");
       setRecordingSignature("");
       setIsFinalizing(false);
@@ -2794,6 +4983,8 @@ export default function App() {
             folderBacked,
             rating: "neutral",
             captionAudioAvailable: Boolean(captionAudio?.samples.length),
+            voiceEmphasis: voiceEmphasisMarkersRef.current.slice(),
+            directorTrack: closeOpenDirectorEvents(timelineEventsRef.current, finishedAt - recordingStartedAtRef.current),
             availability: folderBacked ? "ready" : "session"
           };
           if (captionAudio?.samples.length) {
@@ -2829,12 +5020,13 @@ export default function App() {
   };
 
   const stopRecording = useCallback(() => {
+    closeVisualTimelineEvent();
     const recorder = recorderRef.current;
     if (recorder?.state === "recording") {
       recorder.requestData();
       window.setTimeout(() => { if (recorder.state === "recording") recorder.stop(); }, 150);
     }
-  }, []);
+  }, [closeVisualTimelineEvent]);
 
   useEffect(() => { stopRecordingRef.current = stopRecording; }, [stopRecording]);
 
@@ -2896,6 +5088,27 @@ export default function App() {
     if (!diagnostics) localStorage.setItem("gesture-studio-mirror", String(next));
   };
 
+  const applyStudioPreset = async () => {
+    if (recordingRef.current || phaseRef.current === "switching") return;
+    const preset = STUDIO_PRESETS.find((item) => item.id === studioPresetId) ?? STUDIO_PRESETS[0];
+    handleAspectChange(preset.aspectId);
+    if (qualityRef.current !== preset.qualityId) await handleQualityChange(preset.qualityId);
+    mirrorCameraRef.current = preset.mirrorCamera;
+    setMirrorCamera(preset.mirrorCamera);
+    if (!diagnostics) localStorage.setItem("gesture-studio-mirror", String(preset.mirrorCamera));
+    const nextAssets = applyPresetToAssets(assetsRef.current, preset);
+    const nextScenes = applyPresetToScenes(scenesRef.current, preset);
+    assetsRef.current = nextAssets;
+    scenesRef.current = nextScenes;
+    setAssets(nextAssets);
+    setScenes(nextScenes);
+    const nextScreenOverlay = { ...screenOverlayRef.current, ...preset.screenOverlay, transform: undefined };
+    screenOverlayRef.current = nextScreenOverlay;
+    setScreenOverlay(nextScreenOverlay);
+    setCaptionStyle((current) => normalizeCaptionStyle({ ...current, ...preset.captionStyle }));
+    setErrorMessage(null);
+  };
+
   const handleImport = async (event: ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files ?? []);
     const imported: StudioAsset[] = [];
@@ -2906,10 +5119,9 @@ export default function App() {
         if (file.type.startsWith("image/")) {
           const sourceUrl = URL.createObjectURL(file);
           objectUrlsRef.current.push(sourceUrl);
-          const image = new Image();
-          image.src = sourceUrl;
+          const image = await compositionImageFromBlob(file, sourceUrl, (url) => objectUrlsRef.current.push(url));
           imagesRef.current.set(id, image);
-          imported.push({ id, name: file.name, kind: "image", sourceUrl, placement: "corner", size: "small", dataView: "table", stageBackground: "camera", stageBackgroundColor: "#111111", entranceAnimation: "fade", cueSound: "none", cueVolume: 0.65 });
+          imported.push({ id, name: file.name, kind: "image", sourceUrl: image.src, placement: "corner", size: "small", dataView: "table", stageBackground: "camera", stageBackgroundColor: "#111111", entranceAnimation: "fade", motionEffect: "none", cameraReflow: "overlay", cueSound: "none", cueVolume: 0.65, ...directorImportDefaults("image", assetsRef.current.length + imported.length, aspectRef.current) });
           if (!diagnostics && projectIdRef.current) await saveAssetBlob(projectIdRef.current, id, file);
         } else if (file.type.startsWith("video/")) {
           const sourceUrl = URL.createObjectURL(file);
@@ -2926,12 +5138,12 @@ export default function App() {
             overlayVideo.muted = false;
             connectVideoAudio(audioMixerRef.current, id, overlayVideo, false);
           }
-          imported.push({ id, name: file.name, kind: "video", sourceUrl, placement: "corner", size: "small", dataView: "table", includeAudio: false, mediaDuration: duration || undefined, stageBackground: "camera", stageBackgroundColor: "#111111", entranceAnimation: "fade", cueSound: "none", cueVolume: 0.65 });
+          imported.push({ id, name: file.name, kind: "video", sourceUrl, placement: "corner", size: "small", dataView: "table", includeAudio: false, videoPlayback: "once", mediaDuration: duration || undefined, stageBackground: "camera", stageBackgroundColor: "#111111", entranceAnimation: "fade", motionEffect: "none", cameraReflow: "overlay", cueSound: "none", cueVolume: 0.65, ...directorImportDefaults("video", assetsRef.current.length + imported.length, aspectRef.current) });
           if (!diagnostics && projectIdRef.current) await saveAssetBlob(projectIdRef.current, id, file);
         } else if (file.name.toLowerCase().endsWith(".csv") || file.type === "text/csv") {
-          imported.push({ id, name: file.name, kind: "csv", rows: parseCsv(await file.text()), placement: "lower", size: "small", dataView: "table", stageBackground: "camera", stageBackgroundColor: "#111111", entranceAnimation: "fade", cueSound: "none", cueVolume: 0.65 });
+          imported.push({ id, name: file.name, kind: "csv", rows: parseCsv(await file.text()), placement: "lower", size: "small", dataView: "table", stageBackground: "camera", stageBackgroundColor: "#111111", entranceAnimation: "fade", motionEffect: "none", cameraReflow: "overlay", cueSound: "none", cueVolume: 0.65, ...directorImportDefaults("csv", assetsRef.current.length + imported.length, aspectRef.current) });
         } else if (file.name.toLowerCase().endsWith(".json") || file.type === "application/json") {
-          imported.push({ id, name: file.name, kind: "json", rows: parseJson(await file.text()), placement: "lower", size: "small", dataView: "table", stageBackground: "camera", stageBackgroundColor: "#111111", entranceAnimation: "fade", cueSound: "none", cueVolume: 0.65 });
+          imported.push({ id, name: file.name, kind: "json", rows: parseJson(await file.text()), placement: "lower", size: "small", dataView: "table", stageBackground: "camera", stageBackgroundColor: "#111111", entranceAnimation: "fade", motionEffect: "none", cameraReflow: "overlay", cueSound: "none", cueVolume: 0.65, ...directorImportDefaults("json", assetsRef.current.length + imported.length, aspectRef.current) });
         } else {
           throw new Error(`${file.name} is not a supported file.`);
         }
@@ -2951,6 +5163,44 @@ export default function App() {
       assetsRef.current = next;
       return next;
     });
+  };
+
+  /* Keyword assignment is desktop-only.
+  const commitVoiceTrigger = (target: { id: string; kind: "asset" | "scene"; name: string }, value: string) => {
+    const normalized = normalizeTriggerWord(value);
+    const currentTargets = triggerTargets(assetsRef.current, scenesRef.current);
+    const fallback = target.kind === "asset"
+      ? suggestAssetTrigger(assetsRef.current.find((asset) => asset.id === target.id) ?? { name: target.name, kind: "image" }, new Set(currentTargets.filter((item) => item.id !== target.id).map((item) => item.triggerWord)))
+      : suggestSceneTrigger(scenesRef.current.find((scene) => scene.id === target.id) ?? { name: target.name, memberIds: [] }, assetsRef.current, new Set(currentTargets.filter((item) => item.id !== target.id).map((item) => item.triggerWord)));
+    const next = normalized || fallback;
+    if (triggerCollision(next, target.id, currentTargets)) {
+      setErrorMessage(`“${next}” already controls another visual. Choose a different word.`);
+      return false;
+    }
+    setErrorMessage(null);
+    if (target.kind === "asset") updateAsset(target.id, { triggerWord: next });
+    else commitSceneUpdates(target.id, { triggerWord: next });
+    return true;
+  };
+  */
+
+  const chooseAssetDeckMode = (mode: AssetDeckMode) => {
+    if (isRecording || isFinalizing) return;
+    assetDeckModeRef.current = mode;
+    setAssetDeckMode(mode);
+    const visible = mode === "always";
+    assetDeckVisibleRef.current = visible;
+    setAssetDeckVisible(visible);
+    assetDeckGateRef.current.reset();
+    if (!visible && activeLayerIdRef.current && currentVideoStyleAssets().some((asset) => asset.id === activeLayerIdRef.current)) hideLayer();
+  };
+
+  const applySpawnStyle = (asset: StudioAsset, styleId: SpawnStyleId) => {
+    const style = SPAWN_STYLES.find((item) => item.id === styleId);
+    if (!style) return;
+    const updates: Partial<StudioAsset> = { entranceAnimation: style.animation, cueSound: style.sound, cueVolume: 0.55 };
+    if (asset.id === SCREEN_OVERLAY_ID) commitAssetUpdates(asset.id, updates);
+    else updateAsset(asset.id, updates);
   };
 
   const openAssetEditor = (asset: StudioAsset) => {
@@ -3039,8 +5289,47 @@ export default function App() {
     }
   };
 
+  const setVideoPlayback = (asset: StudioAsset, mode: VideoPlaybackMode) => {
+    if (asset.kind !== "video") return;
+    updateAsset(asset.id, { videoPlayback: mode });
+    if (!completedVideoIdsRef.current.has(asset.id)) return;
+
+    const nextCompleted = new Set(completedVideoIdsRef.current);
+    nextCompleted.delete(asset.id);
+    completedVideoIdsRef.current = nextCompleted;
+    completedVideoVersionRef.current += 1;
+
+    const ownerScene = scenesRef.current.find((scene) => scene.memberIds.includes(asset.id));
+    const ownerLayerId = ownerScene ? sceneLayerId(ownerScene.id) : asset.id;
+    if (!liveLayerIdsRef.current.includes(ownerLayerId)) return;
+    const video = videosRef.current.get(asset.id);
+    if (!video) return;
+    const trim = normalizeVideoTrim(asset.videoTrim, asset.mediaDuration ?? video.duration);
+    video.currentTime = trim.start;
+    void video.play().catch(() => undefined);
+    const visible = (!ownerScene || !sceneSoloRef.current[ownerScene.id] || sceneSoloRef.current[ownerScene.id] === asset.id)
+      && !budgetHiddenAssetIdsRef.current.has(asset.id);
+    setVideoAudioEnabled(audioMixerRef.current, asset.id, Boolean(visible && asset.includeAudio));
+  };
+
+  const toggleVideoPlayback = (asset: StudioAsset) => {
+    setVideoPlayback(asset, normalizeVideoPlaybackMode(asset.videoPlayback) === "loop" ? "once" : "loop");
+  };
+
   const toggleSceneDraftMember = (assetId: string) => {
-    setSceneDraftMembers((current) => current.includes(assetId) ? current.filter((id) => id !== assetId) : [...current, assetId]);
+    if (sceneDraftMembers.includes(assetId)) {
+      setSceneDraftMembers(sceneDraftMembers.filter((id) => id !== assetId));
+      setErrorMessage(null);
+      return;
+    }
+    const candidate = [...sceneDraftMembers, assetId];
+    const limitError = sceneMemberLimitError(candidate, assetsRef.current);
+    if (limitError) {
+      setErrorMessage(limitError);
+      return;
+    }
+    setSceneDraftMembers(candidate);
+    setErrorMessage(null);
   };
 
   const createScene = () => {
@@ -3049,18 +5338,21 @@ export default function App() {
       setErrorMessage("Choose at least two unused assets for a collage scene.");
       return;
     }
+    const limitError = sceneMemberLimitError(members, assetsRef.current);
+    if (limitError) {
+      setErrorMessage(limitError);
+      return;
+    }
+    const creationPreset = STUDIO_PRESETS.find((item) => item.id === studioPresetId) ?? STUDIO_PRESETS[0];
     const scene: StudioScene = {
       id: crypto.randomUUID(),
       name: sceneDraftName.trim() || `Scene ${scenesRef.current.length + 1}`,
       memberIds: members,
       placement: "center",
       size: "full",
+      ...creationPreset.sceneDefaults,
       layout: sceneDraftLayout,
-      stageBackground: "camera",
-      stageBackgroundColor: "#111111",
-      entranceAnimation: "fade",
-      cueSound: "none",
-      cueVolume: 0.65
+      memberFocusModes: Object.fromEntries(members.map((id) => [id, "medium" as const]))
     };
     const memberSet = new Set(members);
     const nextAssets = assetsRef.current.map((asset) => memberSet.has(asset.id) ? { ...asset, gesture: undefined } : asset);
@@ -3078,42 +5370,70 @@ export default function App() {
   const removeScene = (scene: StudioScene) => {
     const layerId = sceneLayerId(scene.id);
     const nextScenes = scenesRef.current.filter((item) => item.id !== scene.id);
-    const nextStack = removeLayer(liveLayerIdsRef.current, layerId);
-    const nextFocus = activeLayerIdRef.current === layerId ? nextStack.at(-1) ?? null : activeLayerIdRef.current;
+    let nextStack = removeLayer(liveLayerIdsRef.current, layerId);
     const nextSolo = { ...sceneSoloRef.current };
     delete nextSolo[scene.id];
+    const nextCompleted = new Set(completedVideoIdsRef.current);
+    let clearedCompletedVideo = false;
+    scene.memberIds.forEach((id) => {
+      if (nextCompleted.delete(id)) clearedCompletedVideo = true;
+    });
+    if (clearedCompletedVideo) {
+      completedVideoIdsRef.current = nextCompleted;
+      completedVideoVersionRef.current += 1;
+    }
     scenesRef.current = nextScenes;
+    sceneSoloRef.current = nextSolo;
+    nextStack = enforceBudgetForStack(nextStack);
+    const nextFocus = activeLayerIdRef.current === layerId || !nextStack.includes(activeLayerIdRef.current ?? "") ? nextStack.at(-1) ?? null : activeLayerIdRef.current;
     liveLayerIdsRef.current = nextStack;
     activeLayerIdRef.current = nextFocus;
-    sceneSoloRef.current = nextSolo;
+    const nextActivationTimes = { ...layerActivationTimesRef.current };
+    delete nextActivationTimes[layerId];
+    layerActivationTimesRef.current = nextActivationTimes;
     setScenes(nextScenes);
+    widgetsRef.current = widgetsRef.current.map((widget) => widget.kind === "orbit" ? { ...widget, sceneIds: (widget.sceneIds ?? []).filter((id) => id !== scene.id) } : widget);
+    setWidgets(widgetsRef.current);
     setLiveLayerIds(nextStack);
     setActiveLayerId(nextFocus);
     setSceneSolo(nextSolo);
   };
 
   const assignSceneGesture = (sceneId: string, gesture: GestureId | undefined) => {
-    const owner = gesture ? gestureOwner(gesture, assetsRef.current, scenesRef.current, { kind: "scene", id: sceneId }) : null;
-    if (gesture && owner) {
-      setErrorMessage(`${gestureLabel(gesture)} is already assigned to ${owner.name}.`);
+    if (gesture === "one") {
+      setErrorMessage("One finger is reserved for pointing at scene assets.");
       return;
     }
+    const scene = scenesRef.current.find((item) => item.id === sceneId);
+    const previousGesture = scene?.gesture;
     setErrorMessage(null);
     commitSceneUpdates(sceneId, { gesture });
+    gestureSequenceCursorRef.current = {
+      ...gestureSequenceCursorRef.current,
+      ...(previousGesture ? { [previousGesture]: 0 } : {}),
+      ...(gesture ? { [gesture]: 0 } : {})
+    };
+    setActiveGestureCue(null);
   };
 
   function toggleSceneSolo(scene: StudioScene, assetId: string) {
     if (!liveLayerIdsRef.current.includes(sceneLayerId(scene.id))) return;
+    if ((scene.memberFocusModes?.[assetId] ?? "medium") === "off") return;
     const current = sceneSoloRef.current[scene.id];
     const next = { ...sceneSoloRef.current };
     if (current === assetId) delete next[scene.id];
     else next[scene.id] = assetId;
     sceneSoloRef.current = next;
     setSceneSolo(next);
+    const budgetedStack = enforceBudgetForStack(liveLayerIdsRef.current);
+    liveLayerIdsRef.current = budgetedStack;
+    setLiveLayerIds(budgetedStack);
     scene.memberIds.forEach((id) => {
       const asset = assetsRef.current.find((item) => item.id === id);
       const video = videosRef.current.get(id);
-      const visible = !next[scene.id] || next[scene.id] === id;
+      const visible = (!next[scene.id] || next[scene.id] === id)
+        && !completedVideoIdsRef.current.has(id)
+        && !budgetHiddenAssetIdsRef.current.has(id);
       if (video) {
         if (visible) void video.play().catch(() => undefined);
         else video.pause();
@@ -3122,19 +5442,58 @@ export default function App() {
     });
   }
 
+  const setSceneMemberFocusMode = (scene: StudioScene, assetId: string, mode: SceneMemberFocusMode) => {
+    const memberFocusModes = { ...scene.memberFocusModes, [assetId]: mode };
+    commitSceneUpdates(scene.id, { memberFocusModes });
+    if (mode === "off" && sceneSoloRef.current[scene.id] === assetId) {
+      const next = { ...sceneSoloRef.current };
+      delete next[scene.id];
+      sceneSoloRef.current = next;
+      setSceneSolo(next);
+      const budgetedStack = enforceBudgetForStack(liveLayerIdsRef.current);
+      liveLayerIdsRef.current = budgetedStack;
+      setLiveLayerIds(budgetedStack);
+      if (activeLayerIdRef.current && !budgetedStack.includes(activeLayerIdRef.current)) {
+        activeLayerIdRef.current = budgetedStack.at(-1) ?? null;
+        setActiveLayerId(activeLayerIdRef.current);
+      }
+    }
+  };
+
   const assignGesture = (assetId: string, gesture: GestureId | undefined) => {
+    if (gesture === "one") {
+      setErrorMessage("One finger is reserved for pointing at scene assets.");
+      return;
+    }
     const scene = scenesRef.current.find((item) => item.memberIds.includes(assetId));
     if (scene) {
       setErrorMessage(`${scene.name} owns the gesture for this asset.`);
       return;
     }
-    const owner = gesture ? gestureOwner(gesture, assetsRef.current, scenesRef.current, { kind: "asset", id: assetId }) : null;
-    if (gesture && owner) {
-      setErrorMessage(`${gestureLabel(gesture)} is already assigned to ${owner.name}.`);
-      return;
-    }
+    const previousGesture = assetsRef.current.find((item) => item.id === assetId)?.gesture;
     setErrorMessage(null);
     updateAsset(assetId, { gesture });
+    gestureSequenceCursorRef.current = {
+      ...gestureSequenceCursorRef.current,
+      ...(previousGesture ? { [previousGesture]: 0 } : {}),
+      ...(gesture ? { [gesture]: 0 } : {})
+    };
+    setActiveGestureCue(null);
+  };
+
+  const setGestureSequenceMode = (gesture: GestureId, mode: GestureSequenceMode) => {
+    const order = gestureSequenceLayerIds(gesture, assetsRef.current, scenesRef.current, gestureSequencesRef.current);
+    const next = { ...gestureSequencesRef.current, [gesture]: { order, mode } };
+    gestureSequencesRef.current = next;
+    setGestureSequences(next);
+  };
+
+  const moveGestureSequenceCue = (gesture: GestureId, layerId: string, direction: -1 | 1) => {
+    const next = reorderGestureCue(gesture, layerId, direction, assetsRef.current, scenesRef.current, gestureSequencesRef.current);
+    gestureSequencesRef.current = next;
+    gestureSequenceCursorRef.current = { ...gestureSequenceCursorRef.current, [gesture]: 0 };
+    setGestureSequences(next);
+    setActiveGestureCue(null);
   };
 
   const removeAsset = (asset: StudioAsset) => {
@@ -3143,19 +5502,32 @@ export default function App() {
     videosRef.current.get(asset.id)?.pause();
     removeVideoAudio(audioMixerRef.current, asset.id);
     videosRef.current.delete(asset.id);
+    if (completedVideoIdsRef.current.has(asset.id)) {
+      const nextCompleted = new Set(completedVideoIdsRef.current);
+      nextCompleted.delete(asset.id);
+      completedVideoIdsRef.current = nextCompleted;
+      completedVideoVersionRef.current += 1;
+    }
     const remainingAssets = assetsRef.current.filter((item) => item.id !== asset.id);
     const sceneResult = removeAssetFromScenes(asset.id, scenesRef.current);
     let nextStack = removeLayer(liveLayerIdsRef.current, asset.id);
     sceneResult.removedSceneIds.forEach((id) => { nextStack = removeLayer(nextStack, sceneLayerId(id)); });
     const activeWasRemoved = activeLayerIdRef.current === asset.id
       || sceneResult.removedSceneIds.some((id) => activeLayerIdRef.current === sceneLayerId(id));
-    const nextFocus = activeWasRemoved ? nextStack[nextStack.length - 1] ?? null : activeLayerIdRef.current;
     assetsRef.current = remainingAssets;
     scenesRef.current = sceneResult.scenes;
+    widgetsRef.current = widgetsRef.current.map((widget) => widget.actionAssetId === asset.id ? { ...widget, actionAssetId: undefined, active: false } : widget);
+    nextStack = enforceBudgetForStack(nextStack);
+    const nextFocus = activeWasRemoved || !nextStack.includes(activeLayerIdRef.current ?? "") ? nextStack[nextStack.length - 1] ?? null : activeLayerIdRef.current;
     liveLayerIdsRef.current = nextStack;
     activeLayerIdRef.current = nextFocus;
+    const nextActivationTimes = { ...layerActivationTimesRef.current };
+    delete nextActivationTimes[asset.id];
+    sceneResult.removedSceneIds.forEach((id) => { delete nextActivationTimes[sceneLayerId(id)]; });
+    layerActivationTimesRef.current = nextActivationTimes;
     setAssets(remainingAssets);
     setScenes(sceneResult.scenes);
+    setWidgets(widgetsRef.current);
     setLiveLayerIds(nextStack);
     setActiveLayerId(nextFocus);
     if (!diagnostics && projectIdRef.current) void deleteAssetBlob(projectIdRef.current, asset.id);
@@ -3163,8 +5535,33 @@ export default function App() {
       manipulationTrackerRef.current.reset();
       palmSignalTrackerRef.current.reset();
       setManipulation({ mode: "idle", progress: 0 });
-      setSceneTemplateSnapped(false);
     }
+  };
+
+  const clearWorkspace = () => {
+    if (isRecording || isFinalizing || (!assetsRef.current.length && !scenesRef.current.length && !widgetsRef.current.length)) return;
+    if (!window.confirm("Clear every visual, scene, and sticker from this workspace? This cannot be undone.")) return;
+    [...assetsRef.current].forEach(removeAsset);
+    scenesRef.current = [];
+    liveLayerIdsRef.current = [];
+    activeLayerIdRef.current = null;
+    gestureSequencesRef.current = {};
+    assetDeckOffsetRef.current = 0;
+    deckScrollControllerRef.current.reset();
+    deckScrollEngagedRef.current = false;
+    setScenes([]);
+    setLiveLayerIds([]);
+    setActiveLayerId(null);
+    setGestureSequences({});
+    setAssetDeckOffset(0);
+    widgetAudioRef.current.forEach((audio, id) => { audio.pause(); removeVideoAudio(audioMixerRef.current, `widget:${id}`); URL.revokeObjectURL(audio.src); });
+    widgetAudioRef.current.clear();
+    widgetsRef.current = [];
+    setWidgets([]);
+    setSelectedWidgetId(null);
+    setPointFocus(null);
+    setSpotlight(null);
+    setPhaseMessage("Workspace cleared — add media when you’re ready");
   };
 
   useEffect(() => {
@@ -3195,13 +5592,35 @@ export default function App() {
     : activeLayer?.kind;
   const pointerEditorGeometry = activeSceneMemberEditorGeometry ?? activeGeometry;
   const pointerEditorName = activeSceneMemberEditorGeometry?.asset.name ?? (activeLayer ? layerName(activeLayer) : "Asset");
-  const visibleCameraViewport = cameraFrameViewport(outputSize.width, outputSize.height, cameraFrame);
-  const manipulationHeadline = cameraBorderSnap
-    ? cameraSnapLabel(cameraBorderSnap)
-    : sceneTemplateSnapped
-    ? "Template size"
-    : manipulationLabel(manipulation.mode, manipulationSubject);
+  const manipulationHeadline = manipulationLabel(manipulation.mode, manipulationSubject);
   const previewTake = previewTakeId ? recordings.find((take) => take.id === previewTakeId) ?? null : null;
+  const pendingDeleteTake = pendingDeleteTakeId ? recordings.find((take) => take.id === pendingDeleteTakeId) ?? null : null;
+  const selectedStudioPreset = STUDIO_PRESETS.find((preset) => preset.id === studioPresetId) ?? STUDIO_PRESETS[0];
+  const gestureSequenceCatalog = Object.fromEntries(GESTURES.map(({ id }) => [
+    id,
+    gestureSequenceLayerIds(id, assets, scenes, effectiveGestureSequences)
+  ])) as Record<GestureId, string[]>;
+  const gestureOptionLabel = (gesture: GestureId, layerId: string, currentGesture?: GestureId) => {
+    const label = GESTURES.find((item) => item.id === gesture)?.label ?? gesture;
+    const sequence = gestureSequenceCatalog[gesture];
+    if (currentGesture === gesture && sequence.length > 1) return `${label} · cue ${sequence.indexOf(layerId) + 1}/${sequence.length}`;
+    if (currentGesture !== gesture && sequence.length) return `${label} · add cue ${sequence.length + 1}`;
+    return label;
+  };
+  const gestureCueGroups = ACTIVATION_GESTURES.map((gesture) => {
+    const order = gestureSequenceCatalog[gesture.id];
+    return {
+      gesture,
+      order,
+      layers: order.map((id) => resolveLayer(id, assets, scenes)).filter((layer): layer is StudioLayer => Boolean(layer)),
+      mode: effectiveGestureSequences[gesture.id]?.mode ?? "keep" as GestureSequenceMode
+    };
+  }).filter((group) => group.layers.length > 1);
+  const focusCueSettings = (layerId: string) => {
+    const card = document.getElementById(`library-layer-${layerId}`);
+    card?.scrollIntoView({ behavior: "smooth", block: "center" });
+    card?.focus({ preventScroll: true });
+  };
   const screenCaptureSupported = diagnostics || Boolean(navigator.mediaDevices?.getDisplayMedia);
   const screenSurfaceName = screenSettings?.displaySurface === "browser"
     ? "Browser tab"
@@ -3210,10 +5629,222 @@ export default function App() {
     : screenSettings?.displaySurface === "monitor"
     ? "Display"
     : "Shared screen";
+  const selectVideoStyle = (next: VideoStyleId) => {
+    if (isRecording || isFinalizing || next === videoStyleId) return;
+    if (activeLayerIdRef.current) hideLayer();
+    if (next === "spatial" || next === "split-decks") {
+      deckScrollControllerRef.current.reset();
+      deckScrollEngagedRef.current = false;
+      deckFlickCandidateRef.current = null;
+      assetDeckOffsetRef.current = 0;
+      setAssetDeckOffset(0);
+    }
+    setVideoStyleId(next);
+    setDeckPlacement(next === "top-shelf" ? 0.055 : next === "center-shelf" ? 0.425 : next === "bottom-shelf" ? 0.77 : 0.5);
+  };
+  const createCanvasWidget = (kind: CanvasWidgetKind, position = { x: .5, y: .5 }, sceneId?: string) => {
+    const existing = widgetsRef.current.find((widget) => widget.kind === kind && (kind !== "orbit"
+      || (sceneId ? widget.sceneIds?.includes(sceneId) : !(widget.sceneIds?.length))));
+    if (existing) {
+      updateCanvasWidget(existing.id, {
+        visible: true,
+        ...(kind === "orbit" && !(existing.assetIds?.length) ? { assetIds: assetsRef.current.filter((asset) => asset.kind !== "text").map((asset) => asset.id) } : {})
+      });
+      setSelectedWidgetId(existing.id);
+      setWidgetPanelOpen(true);
+      setWidgetPanelMode("settings");
+      setPhaseMessage(`${existing.title} shown`);
+      return;
+    }
+    const widget: CanvasWidget = {
+      id: crypto.randomUUID(),
+      kind,
+      x: Math.min(.88, Math.max(.12, position.x)),
+      y: Math.min(.84, Math.max(.16, position.y)),
+      scale: 1,
+      title: kind === "bullets" ? "Talking points" : kind === "vinyl" ? "Background music" : kind === "orbit" ? (sceneId ? scenesRef.current.find((scene) => scene.id === sceneId)?.name ?? "Scene files" : "Media files") : kind === "live" ? "Live stream" : kind === "media" ? "Media launcher" : "Action sticker",
+      items: kind === "bullets" ? ["First idea", "Second idea", "Third idea"] : [],
+      revealed: kind === "bullets" ? 3 : 0,
+      sticker: "star",
+      volume: kind === "vinyl" ? .8 : undefined,
+      assetIds: kind === "orbit" ? (sceneId ? [] : assetsRef.current.filter((asset) => asset.kind !== "text").map((asset) => asset.id)) : undefined,
+      sceneIds: kind === "orbit" && sceneId ? [sceneId] : undefined,
+      actionAssetId: kind === "media" ? assetsRef.current.find((asset) => asset.kind === "image" || asset.kind === "video")?.id : undefined,
+      open: false,
+      orbitOffset: 0,
+      visible: true
+    };
+    setWidgets((current) => [...current, widget]);
+    widgetsRef.current = [...widgetsRef.current, widget];
+    setSelectedWidgetId(widget.id);
+    setWidgetPanelOpen(true);
+    setWidgetPanelMode("settings");
+  };
+  const updateCanvasWidget = (id: string, updates: Partial<CanvasWidget>) => {
+    widgetsRef.current = widgetsRef.current.map((widget) => widget.id === id ? { ...widget, ...updates } : widget);
+    setWidgets((current) => current.map((widget) => widget.id === id ? { ...widget, ...updates } : widget));
+  };
+  const removeCanvasWidget = (widget: CanvasWidget) => {
+    const audio = widgetAudioRef.current.get(widget.id);
+    if (audio) {
+      audio.pause();
+      removeVideoAudio(audioMixerRef.current, `widget:${widget.id}`);
+      if (audio.src.startsWith("blob:")) URL.revokeObjectURL(audio.src);
+      widgetAudioRef.current.delete(widget.id);
+    }
+    widgetsRef.current = widgetsRef.current.filter((item) => item.id !== widget.id);
+    setWidgets((current) => current.filter((item) => item.id !== widget.id));
+    if (selectedWidgetId === widget.id) setSelectedWidgetId(null);
+    setWidgetPanelMode("stickers");
+    setPhaseMessage(`${widget.title} removed`);
+  };
+  const activateCanvasWidget = (widget: CanvasWidget) => {
+    setSelectedWidgetId(widget.id);
+    if (widget.kind === "vinyl") {
+      const audio = widgetAudioRef.current.get(widget.id);
+      if (!audio) { widgetAudioInputRef.current?.click(); return; }
+      audio.volume = Math.min(1, Math.max(0, widget.volume ?? .8));
+      if (audio.paused) void ensureAudioMixer().then(async (mixer) => {
+        if (mixer) {
+          connectVideoAudio(mixer, `widget:${widget.id}`, audio, true, true);
+          if (mixer.context.state === "suspended") await mixer.context.resume();
+        }
+        await audio.play();
+        updateCanvasWidget(widget.id, { playing: true });
+      }).catch(() => setPhaseMessage("Music could not start — try pointing again"));
+      else { audio.pause(); updateCanvasWidget(widget.id, { playing: false }); }
+    } else if (widget.kind === "orbit") {
+      const assigned = widget.assetIds ?? assetsRef.current.filter((asset) => asset.kind !== "text").map((asset) => asset.id);
+      const assignedScenes = (widget.sceneIds ?? []).filter((id) => scenesRef.current.some((scene) => scene.id === id));
+      const totalAssigned = assigned.length + assignedScenes.length;
+      if (totalAssigned === 1 && assigned.length === 1) {
+        const asset = assetsRef.current.find((candidate) => candidate.id === assigned[0]);
+        updateCanvasWidget(widget.id, { open: false, assetIds: assigned, sceneIds: assignedScenes });
+        if (asset) focusVideoStyleAssetRef.current(asset);
+        setPhaseMessage(asset ? `${asset.name} opened from orbit` : "The orbit asset is unavailable");
+      } else if (totalAssigned === 1 && assignedScenes.length === 1) {
+        const scene = scenesRef.current.find((candidate) => candidate.id === assignedScenes[0]);
+        updateCanvasWidget(widget.id, { open: false, assetIds: assigned, sceneIds: assignedScenes });
+        const layer = scene ? resolveLayer(sceneLayerId(scene.id), assetsRef.current, scenesRef.current) : null;
+        if (layer) activateStudioLayerRef.current(layer);
+        setPhaseMessage(scene ? `${scene.name} opened from files` : "The scene is unavailable");
+      } else {
+        const opening = totalAssigned > 1 && !widget.open;
+        updateCanvasWidget(widget.id, { open: opening, openedAt: opening ? performance.now() : undefined, assetIds: assigned, sceneIds: assignedScenes });
+        if (!totalAssigned) setPhaseMessage("Add media or scenes before opening the orbit");
+        else setPhaseMessage(widget.open ? "Media orbit closed" : "Media orbit open — point at a card");
+      }
+      pointFocusTrackerRef.current.reset();
+      widgetPointTrackerRef.current.reset();
+    } else if (widget.kind === "media") {
+      const asset = assetsRef.current.find((candidate) => candidate.id === widget.actionAssetId && (candidate.kind === "image" || candidate.kind === "video"));
+      if (!asset) {
+        setPhaseMessage("Choose one photo or video in the media launcher settings first");
+        return;
+      }
+      const opening = !widget.active || activeLayerIdRef.current !== asset.id;
+      widgetsRef.current = widgetsRef.current.map((candidate) => candidate.kind === "media" ? { ...candidate, active: candidate.id === widget.id && opening } : candidate);
+      setWidgets(widgetsRef.current);
+      if (opening) {
+        focusVideoStyleAssetRef.current(asset);
+        setPhaseMessage(`${asset.name} is full screen — camera moved to the bottom right`);
+      } else {
+        hideLayer();
+        setPhaseMessage("Media launcher closed");
+      }
+    } else if (widget.kind === "live") {
+      if (screenSettingsRef.current) focusVideoStyleAssetRef.current(screenOverlayAsset(screenSettingsRef.current, screenOverlayRef.current));
+      else setPhaseMessage("Choose a live screen or stream in the widget settings first");
+    } else if (widget.kind === "bullets") {
+      const next = widget.revealed >= widget.items.length ? 1 : widget.revealed + 1;
+      updateCanvasWidget(widget.id, { revealed: next });
+    } else if (widget.actionAssetId) {
+      const asset = assetsRef.current.find((candidate) => candidate.id === widget.actionAssetId);
+      if (asset) focusVideoStyleAssetRef.current(asset);
+    }
+  };
+  activateWidgetRef.current = activateCanvasWidget;
+  const selectedWidget = widgets.find((widget) => widget.id === selectedWidgetId) ?? null;
+  const importWidgetAudio = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file || !selectedWidget || selectedWidget.kind !== "vinyl") return;
+    const previous = widgetAudioRef.current.get(selectedWidget.id);
+    if (previous) { previous.pause(); removeVideoAudio(audioMixerRef.current, `widget:${selectedWidget.id}`); URL.revokeObjectURL(previous.src); }
+    const audio = new Audio(URL.createObjectURL(file));
+    audio.loop = true;
+    audio.preload = "auto";
+    audio.volume = Math.min(1, Math.max(0, selectedWidget.volume ?? .8));
+    widgetAudioRef.current.set(selectedWidget.id, audio);
+    void ensureAudioMixer().then((mixer) => {
+      connectVideoAudio(mixer, `widget:${selectedWidget.id}`, audio, true, true);
+      setPhaseMessage(`${file.name} ready — point at the vinyl to play`);
+    });
+    updateCanvasWidget(selectedWidget.id, { audioName: file.name, playing: false });
+    event.target.value = "";
+  };
+  const openTimelineEnd = isRecording ? recordingSeconds * 1000 : 0;
+  const timelineDurationMs = Math.max(
+    10_000,
+    openTimelineEnd + 1_000,
+    ...timelineEvents.map((event) => (event.endMs ?? openTimelineEnd) + 1_000)
+  );
+  const selectedDirectorEvent = selectedDirectorEventId ? timelineEvents.find((event) => event.id === selectedDirectorEventId) ?? null : null;
+  const commitDirectorTrack = (next: VisualTimelineEvent[]) => {
+    timelineEventsRef.current = next;
+    setTimelineEvents(next);
+    if (recordingRef.current) return;
+    setRecordings((current) => {
+      if (!current.length) return current;
+      const [latest, ...rest] = current;
+      const updated = { ...latest, directorTrack: next };
+      if (updated.folderBacked) void saveTake(updated);
+      return [updated, ...rest];
+    });
+  };
+  const nudgeSelectedDirectorEvent = (deltaMs: number) => {
+    if (!selectedDirectorEventId || isRecording) return;
+    commitDirectorTrack(nudgeDirectorEvent(timelineEventsRef.current, selectedDirectorEventId, deltaMs));
+  };
+  const removeSelectedDirectorEvent = () => {
+    if (!selectedDirectorEventId || isRecording) return;
+    commitDirectorTrack(removeDirectorEvent(timelineEventsRef.current, selectedDirectorEventId));
+    setSelectedDirectorEventId(null);
+  };
+  const undoLastDirectorAction = () => {
+    const last = timelineEventsRef.current.at(-1);
+    if (!last) return;
+    if (activeLayerIdRef.current === last.assetId) hideLayer();
+    const next = removeDirectorEvent(timelineEventsRef.current, last.id);
+    commitDirectorTrack(next);
+    setSelectedDirectorEventId(next.at(-1)?.id ?? null);
+    setPhaseMessage(`Undid ${last.label}`);
+  };
+
+  if (welcomeOpen) return (
+    <main className="rii-welcome" data-theme={themeMode}>
+      <input ref={fileInputRef} data-testid="welcome-asset-input" className="visually-hidden" type="file" multiple accept="image/*,video/*,.csv,text/csv,.json,application/json" onChange={(event) => { void handleImport(event); setWelcomeOpen(false); }} />
+      <div className="rii-welcome-motion" aria-hidden="true">
+        <span className="motion-point"><i /> POINT</span>
+        <span className="motion-focus"><i /> FOCUS</span>
+        <span className="motion-flick"><i /> FLICK</span>
+        <span className="motion-record"><i /> RECORD</span>
+      </div>
+      <section>
+        <div className="rii-welcome-logo"><Hand size={34} /></div>
+        <span className="rii-welcome-wordmark">Rii-Flow</span>
+        <h1>Welcome to Rii-Flow</h1>
+        <p>Create videos that respond to you.</p>
+        <button className="rii-welcome-import" onClick={() => fileInputRef.current?.click()}><Upload size={20} /> Import media</button>
+        <button className="rii-welcome-empty" onClick={() => setWelcomeOpen(false)}>Enter studio without media</button>
+        <div><span><Hand size={15} /> Present naturally</span><span><Sparkles size={15} /> Direct visuals live</span><span><Video size={15} /> Record everything</span></div>
+      </section>
+    </main>
+  );
 
   return (
     <main
-      className="app-shell"
+      className={`app-shell video-style-studio ${isRecording ? "presentation-recording" : ""}`}
+      data-workflow-step="studio"
       data-theme={themeMode}
       data-recognizer-generation={recognizerGeneration}
       data-camera-switches={cameraSwitches}
@@ -3228,19 +5859,27 @@ export default function App() {
       data-microphone-level={microphoneLevel.toFixed(3)}
       data-audio-context-state={audioMixerRef.current?.context.state ?? "unavailable"}
       data-manipulation-mode={manipulation.mode}
-      data-scene-template-snapped={sceneTemplateSnapped}
-      data-camera-border-snap={cameraBorderSnap ?? "none"}
       data-detected-gesture={detected.gesture ?? "none"}
       data-gesture-armed={armed}
       data-hold-progress={holdProgress.toFixed(3)}
+      data-gesture-hold-ms={timing.holdMs}
+      data-gesture-cooldown-ms={timing.cooldownMs}
+      data-gesture-sequence={activeGestureCue?.gesture ?? "none"}
+      data-gesture-cue-index={activeGestureCue ? activeGestureCue.index + 1 : 0}
+      data-gesture-cue-total={activeGestureCue?.total ?? 0}
       data-live-layer-count={liveLayers.length}
       data-live-layer-ids={liveLayerIds.join(",")}
+      data-active-layer-id={activeLayerId ?? "none"}
       data-active-layer-kind={activeLayer?.kind ?? "none"}
+      data-active-entrance={activeAsset?.entranceAnimation ?? activeScene?.entranceAnimation ?? "none"}
+      data-active-cue-sound={activeAsset?.cueSound ?? activeScene?.cueSound ?? "none"}
+      data-active-motion={activeAsset?.motionEffect ?? activeScene?.motionEffect ?? "none"}
       data-active-scale={activeAsset?.transform?.scale ?? activeScene?.transform?.scale ?? 1}
       data-active-size={activeAsset?.size ?? activeScene?.size ?? ""}
       data-active-x={activeAsset?.transform?.x ?? activeScene?.transform?.x ?? ""}
       data-active-y={activeAsset?.transform?.y ?? activeScene?.transform?.y ?? ""}
       data-scene-count={scenes.length}
+      data-active-scene-reveal={activeScene?.revealSide ?? "none"}
       data-scene-solo={activeSceneSoloId ?? "none"}
       data-scene-member-target={focusedSceneMemberId ?? "none"}
       data-scene-member-selected={selectedSceneMemberId ?? "none"}
@@ -3251,6 +5890,11 @@ export default function App() {
       data-caption-position={captionStyle.position}
       data-caption-anchor-x={captionStyle.anchorX.toFixed(3)}
       data-caption-anchor-y={captionStyle.anchorY.toFixed(3)}
+      data-word-animation-cues={wordAnimationCues.length}
+      data-voice-emphasis-markers={voiceEmphasisMarkers.length}
+      data-live-word-spark={liveWordSpark?.id ?? "none"}
+      data-morph-gesture-progress={morphGestureProgress.toFixed(3)}
+      data-morph-exit-asset={morphExitAssetId ?? "none"}
       data-inference-mode={inferenceMode}
       data-inference-latency={inferenceLatency}
       data-composition-fps={compositionStats.fps}
@@ -3265,6 +5909,9 @@ export default function App() {
       data-camera-frame-enabled={cameraFrame.enabled}
       data-camera-frame-size={cameraFrame.sizePercent}
       data-camera-frame-color={cameraFrameColor(cameraFrame)}
+      data-camera-reflow-layer={cameraReflowFrameRef.current.target?.layerId ?? "none"}
+      data-camera-reflow-side={cameraReflowFrameRef.current.target?.assetSide ?? "none"}
+      data-camera-reflow-width={cameraReflowFrameRef.current.width.toFixed(3)}
       data-screen-overlay={screenSettings && screenOverlay.visible ? "visible" : "hidden"}
       data-screen-overlay-placement={screenOverlay.placement}
       data-screen-overlay-size={screenOverlay.size}
@@ -3275,45 +5922,192 @@ export default function App() {
       data-screen-audio={screenSettings?.hasAudio ? "included" : "none"}
       data-screen-width={screenSettings?.width ?? 0}
       data-screen-height={screenSettings?.height ?? 0}
+      data-asset-deck-mode={assetDeckMode}
+      data-asset-deck-visible={assetDeckVisible}
+      data-voice-target-count={voiceTriggerTargets.length}
+      data-voice-armed-target={armedVoiceTarget?.id ?? "none"}
+      data-voice-armed-source={armedVoiceTarget?.source ?? "none"}
+      data-intent-current={intentQueue[0]?.conceptId ?? "none"}
+      data-intent-confirmable={intentQueue[0]?.confirmable ?? false}
+      data-intent-count={intentQueue.length}
+      data-confirm-feedback={confirmFeedback || "none"}
+      data-operator-shelf={operatorShelfOpen ? "open" : "closed"}
+      data-operator-shelf-target={operatorShelfTargetId ?? "none"}
+      data-shelf-point-carryover={shelfPointCarryoverRef.current}
+      data-spotlight-target={spotlight?.sceneMemberId ?? spotlight?.layerId ?? "none"}
+      data-spotlight-progress={spotlight?.progress.toFixed(3) ?? "0"}
+      data-style-screen-asset={styleAssets.some((asset) => asset.id === SCREEN_OVERLAY_ID)}
       data-stage-frame-rate={activeFrameRate}
+      data-composition-driver={compositionDriver}
       data-stage-background={stageBackdropForLayers(liveLayers).mode}
       data-project-id={projectId}
       data-project-save-state={projectSaveState}
       data-project-takes={recordings.length}
+      data-studio-preset={studioPresetId}
+      data-live-visual-limit={MAX_LIVE_VISUALS}
+      data-live-moving-limit={MAX_LIVE_MOVING_SOURCES}
+      data-budget-hidden-assets={[...budgetHiddenAssetIdsRef.current].join(",")}
+      data-point-focus-target={pointFocus?.targetName ?? "none"}
+      data-point-focus-progress={pointFocus?.progress.toFixed(3) ?? "0"}
       data-workspace-assets={assets.length}
       data-workspace-scenes={scenes.length}
+      data-director-cue-count={directorQueue.length}
+      data-director-cursor={directorCurrentIndex}
+      data-director-current={activeLayerId ?? "hidden"}
+      data-director-focused-asset={directorFocusedAssetId ?? "none"}
       data-trigger-hand="any"
       data-movement-reach="comfort"
       data-recording-finalizing={isFinalizing}
       data-recording-folder={folderPermission === "granted" ? recordingsDirectory?.name ?? "connected" : "session"}
+      data-video-style={videoStyleId}
+      data-video-style-runtime={videoStyleRef.current}
+      data-video-style-assets={styleAssets.length}
+      data-video-style-focus={activeAsset && styleAssets.some((asset) => asset.id === activeAsset.id) ? activeAsset.id : "gallery"}
+      data-video-style-constrained={currentStyleLayout.constrainedFocus}
+      data-timeline-events={timelineEvents.length}
     >
       <div className="studio-grid">
         <aside className="library-panel" aria-label="Media library">
-          <div className="app-brand"><div className="app-logo"><Hand size={18} /></div><span><h1>Rii-Flow</h1><small>Turn gestures into on-camera visuals</small></span><button className="theme-toggle" aria-label={`Switch to ${themeMode === "dark" ? "light" : "dark"} theme`} title={`Use ${themeMode === "dark" ? "light" : "dark"} theme`} aria-pressed={themeMode === "dark"} onClick={() => setThemeMode((current) => current === "dark" ? "light" : "dark")}>{themeMode === "dark" ? <Sun size={17} /> : <Moon size={17} />}</button></div>
-          <section className="recording-destination-bar" aria-label="Recording destination">
-            <div className={`workspace-destination ${folderPermission === "granted" ? "ready" : "warning"}`}>
-              <span><HardDrive size={16} /></span>
-              <div><small>Recording destination</small><strong>{recordingsDirectory?.name ?? "Session memory"}</strong><em>{folderPermission === "granted" ? "Direct MP4 saving" : recordingsDirectory ? "Reconnect or choose another folder" : folderPermission === "unsupported" ? "Folder selection needs Chrome or Edge" : "Choose a folder for long takes"}</em></div>
-              <button data-testid="recording-folder-button" disabled={isRecording || isFinalizing} aria-label={recordingsDirectory ? "Change recording folder" : "Choose recording folder"} title={recordingsDirectory ? "Change recording folder" : "Choose recording folder"} onClick={() => void changeRecordingsFolder()}><FolderOpen size={15} /><span>{recordingsDirectory ? "Change" : "Choose"}</span></button>
-            </div>
+          <div className="app-brand"><div className="app-logo"><Hand size={18} /></div><span><h1>Rii-Flow</h1><small>Your story, directed live</small></span><button className="theme-toggle" aria-label={`Switch to ${themeMode === "dark" ? "light" : "dark"} theme`} title={`Use ${themeMode === "dark" ? "light" : "dark"} theme`} aria-pressed={themeMode === "dark"} onClick={() => setThemeMode((current) => current === "dark" ? "light" : "dark")}>{themeMode === "dark" ? <Sun size={17} /> : <Moon size={17} />}</button></div>
+          <section className="studio-preset-bar" aria-label="Studio preset">
+            <span className="studio-preset-icon"><Sparkles size={17} /></span>
+            <label>
+              <small>Quick setup</small>
+              <div className="select-box full">
+                <select
+                  data-testid="studio-preset-select"
+                  aria-label="Studio preset"
+                  value={studioPresetId}
+                  disabled={isRecording || isFinalizing}
+                  onChange={(event) => {
+                    const next = event.target.value as StudioPresetId;
+                    setStudioPresetId(next);
+                    localStorage.setItem("rii-flow-studio-preset", next);
+                  }}
+                >
+                  {STUDIO_PRESETS.map((preset) => <option key={preset.id} value={preset.id}>{preset.name}</option>)}
+                </select>
+                <ChevronDown size={15} />
+              </div>
+              <em>{selectedStudioPreset.detail}</em>
+            </label>
+            <button data-testid="apply-studio-preset" disabled={isRecording || isFinalizing || phase === "switching"} onClick={() => void applyStudioPreset()}>Apply</button>
           </section>
-          <div className="panel-title"><div><span>Live visual library</span><h2>Media</h2></div><b>{assets.length}</b></div>
+          <div className="panel-title"><div><span>Tell it in this order</span><h2>Story beats</h2></div><b>{directorQueue.length}</b></div>
           <input ref={fileInputRef} data-testid="asset-input" className="visually-hidden" type="file" multiple accept="image/*,video/*,.csv,text/csv,.json,application/json" onChange={handleImport} />
           <div className="library-actions">
             <button className="import-control" onClick={() => fileInputRef.current?.click()}><Upload size={15} /> Import media</button>
             <button className="scene-control" aria-expanded={sceneBuilderOpen} aria-controls="scene-builder-dialog" onClick={() => setSceneBuilderOpen(true)}>
               <span className="scene-control-icon"><LayoutGrid size={20} /></span>
-              <span className="scene-control-copy"><strong>Create collage scene</strong><small>Group media in one layout · trigger together</small></span>
+              <span className="scene-control-copy"><strong>Make a layout</strong><small>Combine up to five visuals</small></span>
               <Plus size={18} />
             </button>
           </div>
           <p className="support-copy">Images, videos, CSV, and JSON</p>
 
+          <section className="director-panel" aria-label="Live Director story queue">
+            <header className="director-heading">
+              <span><Radio size={17} /></span>
+              <div><small>Live Director</small><strong>Your story, in order</strong></div>
+              <b>{directorQueue.length}</b>
+            </header>
+
+            {directorQueue.length === 0 ? (
+              <button className="director-empty" onClick={() => fileInputRef.current?.click()}>
+                <span><Upload size={20} /></span>
+                <strong>Drop in your story beats</strong>
+                <small>Rii-Flow builds the live sequence automatically.</small>
+              </button>
+            ) : (
+              <>
+                <div className="director-now-next" aria-live="polite">
+                  <div className={directorCueLive ? "live" : "ready"}>
+                    <small>{directorCueLive ? "On stage" : "Ready"}</small>
+                    <strong>{shortName(layerName(directorCurrentCue as StudioLayer), 22)}</strong>
+                  </div>
+                  <ArrowDown size={15} />
+                  <div>
+                    <small>Up next</small>
+                    <strong>{directorNextCue && directorNextCue.id !== directorCurrentCue?.id ? shortName(layerName(directorNextCue), 22) : "End of story"}</strong>
+                  </div>
+                </div>
+
+                <ol className="director-queue">
+                  {directorQueue.map((layer, index) => {
+                    const isCurrent = index === directorCurrentIndex;
+                    const isLive = activeLayerId === layer.id;
+                    return (
+                      <li key={layer.id} className={`${isCurrent ? "current" : ""} ${isLive ? "live" : ""}`}>
+                        <button className="director-cue-main" aria-label={`${isLive ? "Live" : "Show"} ${layerName(layer)}`} onClick={() => void activateLayerFromLibrary(layer)}>
+                          <b>{String(index + 1).padStart(2, "0")}</b>
+                          <i className={`director-cue-thumb ${layer.kind}`}>
+                            {layer.kind === "asset"
+                              ? layer.asset.kind === "image" ? <img src={layer.asset.sourceUrl} alt="" /> : layer.asset.kind === "video" ? <video src={layer.asset.sourceUrl} muted playsInline preload="metadata" aria-hidden="true" /> : layer.asset.kind === "csv" ? <FileSpreadsheet size={19} /> : <FileJson2 size={19} />
+                              : layer.assets.slice(0, 4).map((asset) => asset.kind === "image" ? <img key={asset.id} src={asset.sourceUrl} alt="" /> : <span key={asset.id}>{asset.kind === "video" ? <Video size={11} /> : <FileSpreadsheet size={11} />}</span>)}
+                          </i>
+                          <span><strong>{shortName(layerName(layer), 25)}</strong><small>{layer.kind === "scene" ? `${layer.assets.length} visuals · composition` : layer.asset.kind === "video" ? "Video beat" : layer.asset.kind === "image" ? "Visual beat" : "Data beat"}</small></span>
+                          {isLive ? <em>LIVE</em> : isCurrent ? <em>READY</em> : null}
+                        </button>
+                        <span className="director-cue-actions">
+                          {layer.kind === "asset" && (layer.asset.kind === "image" || layer.asset.kind === "video") && <button aria-label={`${layer.asset.kind === "video" ? "Trim" : "Crop"} ${layer.asset.name}`} onClick={() => openAssetEditor(layer.asset)}>{layer.asset.kind === "video" ? <Scissors size={14} /> : <Crop size={14} />}</button>}
+                          <button aria-label={`Remove ${layerName(layer)}`} onClick={() => layer.kind === "asset" ? removeAsset(layer.asset) : removeScene(layer.scene)}><Trash2 size={14} /></button>
+                        </span>
+                      </li>
+                    );
+                  })}
+                </ol>
+
+                <div className="director-language" aria-label="Universal gesture controls">
+                  <span><b>👍</b><small>Next</small></span>
+                  <span><b>👎</b><small>Back</small></span>
+                  <span><b>✊</b><small>Clear</small></span>
+                  <span><b>✋</b><small>Move</small></span>
+                  <span><b>☝️</b><small>Focus</small></span>
+                </div>
+              </>
+            )}
+          </section>
+
+          {false && gestureCueGroups.length > 0 && (
+            <section className="cue-groups-section" aria-label="Cue groups">
+              <header className="cue-groups-heading"><span><ListVideo size={17} /></span><div><strong>Cue groups</strong><small>Same gesture, clear order</small></div><b>{gestureCueGroups.length}</b></header>
+              <div className="cue-groups-stack">
+                {gestureCueGroups.map(({ gesture, order, layers, mode }) => (
+                  <article key={gesture.id} className="cue-group" data-testid={`cue-group-${gesture.id}`}>
+                    <header>
+                      <span className="cue-group-title"><Hand size={15} /><span><strong>{gesture.label}</strong><small>{layers.length} cues</small></span></span>
+                      <label><span className="visually-hidden">Sequence behavior</span><select aria-label={`Behavior for ${gesture.label} sequence`} value={mode} onChange={(event) => setGestureSequenceMode(gesture.id, event.target.value as GestureSequenceMode)}><option value="keep">Keep earlier</option><option value="replace">Replace previous</option></select><ChevronDown size={13} /></label>
+                    </header>
+                    <ol>
+                      {layers.map((layer, index) => (
+                        <li key={layer.id} className={activeLayerId === layer.id ? "active" : liveLayerIds.includes(layer.id) ? "live" : ""}>
+                          <button className="cue-group-jump" aria-label={`Open settings for cue ${index + 1}, ${layerName(layer)}`} onClick={() => focusCueSettings(layer.id)}>
+                            <b>{index + 1}</b>
+                            <i className={`cue-group-thumb ${layer.kind}`}>
+                              {layer.kind === "asset"
+                                ? layer.asset.kind === "image" ? <img src={layer.asset.sourceUrl} alt="" /> : layer.asset.kind === "video" ? <Video size={15} /> : <FileSpreadsheet size={15} />
+                                : layer.assets.slice(0, 4).map((asset) => asset.kind === "image" ? <img key={asset.id} src={asset.sourceUrl} alt="" /> : <span key={asset.id}>{asset.kind === "video" ? <Video size={10} /> : <FileSpreadsheet size={10} />}</span>)}
+                            </i>
+                            <span><strong>{shortName(layerName(layer), 24)}</strong><small>{layer.kind === "asset" ? `${PLACEMENTS.find((item) => item.id === layer.asset.placement)?.label} · ${ASSET_SIZES.find((item) => item.id === layer.asset.size)?.label}` : `Scene · ${layer.scene.layout}`}</small></span>
+                          </button>
+                          <span className="cue-group-order" aria-label={`Cue order for ${layerName(layer)}`}>
+                            <button disabled={index === 0} aria-label={`Move ${layerName(layer)} earlier in ${gesture.label} sequence`} title="Move earlier" onClick={() => moveGestureSequenceCue(gesture.id, layer.id, -1)}><ArrowUp size={12} /></button>
+                            <button disabled={index === order.length - 1} aria-label={`Move ${layerName(layer)} later in ${gesture.label} sequence`} title="Move later" onClick={() => moveGestureSequenceCue(gesture.id, layer.id, 1)}><ArrowDown size={12} /></button>
+                          </span>
+                        </li>
+                      ))}
+                    </ol>
+                  </article>
+                ))}
+              </div>
+            </section>
+          )}
+
           {sceneBuilderOpen && (
             <div className="scene-builder-modal" role="dialog" aria-modal="true" aria-labelledby="scene-builder-title" onMouseDown={(event) => { if (event.target === event.currentTarget) setSceneBuilderOpen(false); }}>
               <section id="scene-builder-dialog" className="scene-builder">
                 <header className="scene-builder-heading"><span className="scene-builder-heading-icon"><LayoutGrid size={21} /></span><span><small>Hands-free composition</small><strong id="scene-builder-title">Create a collage scene</strong></span><button aria-label="Close scene builder" onClick={() => setSceneBuilderOpen(false)}><X size={18} /></button></header>
-                <p className="scene-builder-intro">A scene arranges several assets into one composition. Assign one gesture to the finished scene and every item appears together.</p>
+                <p className="scene-builder-intro">A scene arranges several assets into one composition. Give the finished scene one gesture and reveal the whole layout together.</p>
                 <div className="scene-builder-body">
                   <div className="scene-builder-config">
                     <label><span>Scene name</span><input autoFocus aria-label="Scene name" value={sceneDraftName} onChange={(event) => setSceneDraftName(event.target.value)} /></label>
@@ -3325,26 +6119,29 @@ export default function App() {
                     </div>
                   </div>
                   <div className="scene-assets-section">
-                    <div className="scene-assets-heading"><span><strong>Choose media</strong><small>At least two available assets</small></span><b>{sceneDraftMembers.length} selected</b></div>
+                    <div className="scene-assets-heading"><span><strong>Choose media</strong><small>2–{MAX_SCENE_ASSETS} assets · up to {MAX_SCENE_VIDEO_ASSETS} videos</small></span><b>{sceneDraftMembers.length}/{MAX_SCENE_ASSETS} selected</b></div>
                     {assets.length < 2 ? (
                       <div className="scene-requirement"><span><LayoutGrid size={21} /></span><div><strong>Import at least two media files</strong><small>Images, videos, CSV, and JSON can all be used in a collage.</small></div><button onClick={() => fileInputRef.current?.click()}><Upload size={15} /> Import media</button></div>
-                    ) : assets.filter((asset) => !assetSceneMembership.has(asset.id)).length < 2 ? (
-                      <div className="scene-requirement used"><span><Layers3 size={21} /></span><div><strong>Not enough available media</strong><small>Assets already inside a scene cannot be reused. Remove an existing scene or import more media.</small></div><button onClick={() => fileInputRef.current?.click()}><Upload size={15} /> Import more</button></div>
                     ) : null}
                     <div className="scene-member-picker">
                       {assets.map((asset) => {
-                        const owner = assetSceneMembership.get(asset.id);
-                        return <button key={asset.id} disabled={Boolean(owner)} className={sceneDraftMembers.includes(asset.id) ? "selected" : ""} aria-pressed={sceneDraftMembers.includes(asset.id)} onClick={() => toggleSceneDraftMember(asset.id)}><i>{asset.kind === "image" ? <img src={asset.sourceUrl} alt="" /> : asset.kind === "video" ? <Video size={17} /> : <FileSpreadsheet size={17} />}</i><span><strong>{shortName(asset.name, 22)}</strong><small>{owner ? `Used in ${shortName(owner.name, 18)}` : asset.kind.toUpperCase()}</small></span>{sceneDraftMembers.includes(asset.id) ? <Check size={15} /> : null}</button>;
+                        const selected = sceneDraftMembers.includes(asset.id);
+                        const totalLimitReached = !selected && sceneDraftMembers.length >= MAX_SCENE_ASSETS;
+                        const videoLimitReached = !selected && asset.kind === "video" && sceneDraftVideoCount >= MAX_SCENE_VIDEO_ASSETS;
+                        const unavailableReason = totalLimitReached ? "Scene is full"
+                            : videoLimitReached ? "Two-video limit reached"
+                              : asset.kind.toUpperCase();
+                        return <button key={asset.id} disabled={totalLimitReached || videoLimitReached} className={selected ? "selected" : ""} aria-pressed={selected} onClick={() => toggleSceneDraftMember(asset.id)}><i>{asset.kind === "image" ? <img src={asset.sourceUrl} alt="" /> : asset.kind === "video" ? <Video size={17} /> : <FileSpreadsheet size={17} />}</i><span><strong>{shortName(asset.name, 22)}</strong><small>{unavailableReason}</small></span>{selected ? <Check size={15} /> : null}</button>;
                       })}
                     </div>
                   </div>
                 </div>
-                <footer className="scene-builder-footer"><small>{sceneDraftMembers.length < 2 ? "Select two or more available assets to continue." : `${sceneDraftMembers.length} assets will appear together when this scene is triggered.`}</small><div><button onClick={() => setSceneBuilderOpen(false)}>Cancel</button><button className="confirm" disabled={sceneDraftMembers.length < 2} onClick={createScene}><Plus size={16} /> Create scene</button></div></footer>
+                <footer className="scene-builder-footer"><small>{sceneDraftMembers.length < 2 ? "Select two or more available assets to continue." : sceneDraftMembers.length === MAX_SCENE_ASSETS ? `Scene full · ${sceneDraftVideoCount}/${MAX_SCENE_VIDEO_ASSETS} videos` : `${sceneDraftMembers.length} assets · ${sceneDraftVideoCount}/${MAX_SCENE_VIDEO_ASSETS} videos`}</small><div><button onClick={() => setSceneBuilderOpen(false)}>Cancel</button><button className="confirm" disabled={sceneDraftMembers.length < 2} onClick={createScene}><Plus size={16} /> Create scene</button></div></footer>
               </section>
             </div>
           )}
 
-          {scenes.length > 0 && (
+          {false && scenes.length > 0 && (
             <section className="scene-section" aria-label="Collage scenes">
               <div className="scene-section-heading"><span className="scene-section-icon"><Layers3 size={18} /></span><span><strong>Scenes</strong></span><b>{scenes.length}</b></div>
               <div className="scene-stack">
@@ -3353,25 +6150,38 @@ export default function App() {
                   const sceneAssets = scene.memberIds.map((id) => assets.find((asset) => asset.id === id)).filter((asset): asset is StudioAsset => Boolean(asset));
                   const soloId = sceneSolo[scene.id];
                   return (
-                    <article key={scene.id} className={`asset-item scene-item ${liveLayerIds.includes(layerId) ? "live" : ""} ${activeLayerId === layerId ? "focused" : ""}`}>
+                    <article id={`library-layer-${layerId}`} tabIndex={-1} key={scene.id} className={`asset-item scene-item ${liveLayerIds.includes(layerId) ? "live" : ""} ${activeLayerId === layerId ? "focused" : ""}`}>
                       <div className="asset-identity-row">
                         <button className={`asset-icon asset-preview-button scene-preview ${scene.layout}`} aria-label={`Activate ${scene.name}`} onClick={() => void activateLayerFromLibrary(resolveLayer(layerId, assets, scenes) as StudioLayer)}>
                           {sceneAssets.slice(0, 4).map((asset) => asset.kind === "image" ? <img key={asset.id} src={asset.sourceUrl} alt="" /> : <span key={asset.id}>{asset.kind === "video" ? <Video size={13} /> : <FileSpreadsheet size={13} />}</span>)}
                         </button>
-                        <span className="asset-copy"><input className="scene-name-input" aria-label="Scene name" value={scene.name} onChange={(event) => commitSceneUpdates(scene.id, { name: event.target.value })} /><small>{sceneAssets.length} ASSETS{soloId ? ` · SOLO ${shortName(sceneAssets.find((asset) => asset.id === soloId)?.name ?? "", 10)}` : liveLayerIds.includes(layerId) ? " · LIVE" : ""}</small></span>
+                        <span className="asset-copy"><input className="scene-name-input" aria-label="Scene name" value={scene.name} onChange={(event) => commitSceneUpdates(scene.id, { name: event.target.value })} /><small>{sceneAssets.length} ASSETS{soloId ? ` · FOCUS ${shortName(sceneAssets.find((asset) => asset.id === soloId)?.name ?? "", 10)}` : liveLayerIds.includes(layerId) ? " · LIVE" : ""}</small></span>
                         <button className="remove-button" aria-label={`Remove ${scene.name}`} onClick={() => removeScene(scene)}><Trash2 size={16} /></button>
                       </div>
                       <div className="scene-member-strip" aria-label={`${scene.name} members`}>
-                        {sceneAssets.map((asset) => <button key={asset.id} className={soloId === asset.id ? "solo" : ""} title="Double-click to solo while live" onDoubleClick={() => toggleSceneSolo(scene, asset.id)}>{asset.kind === "image" ? <img src={asset.sourceUrl} alt="" /> : asset.kind === "video" ? <Video size={15} /> : <FileSpreadsheet size={15} />}</button>)}
+                        {sceneAssets.map((asset) => {
+                          const loops = normalizeVideoPlaybackMode(asset.videoPlayback) === "loop";
+                          const focusMode = scene.memberFocusModes?.[asset.id] ?? "medium";
+                          return <span key={asset.id} className={`scene-member-chip ${asset.kind}`}>
+                            <button className={`scene-member-thumb ${soloId === asset.id ? "solo" : ""}`} title="Double-click to focus while live" onDoubleClick={() => toggleSceneSolo(scene, asset.id)}>{asset.kind === "image" ? <img src={asset.sourceUrl} alt="" /> : asset.kind === "video" ? <Video size={15} /> : <FileSpreadsheet size={15} />}</button>
+                            {asset.kind === "video" && <>
+                              <button data-testid={`scene-video-playback-${asset.id}`} className={`scene-member-playback ${loops ? "loop" : "once"}`} aria-label={`Set ${asset.name} to ${loops ? "play once" : "loop"}`} title={loops ? "Looping · click to play once" : "Plays once, then hides · click to loop"} aria-pressed={loops} onClick={(event) => { event.stopPropagation(); toggleVideoPlayback(asset); }}>{loops ? <Repeat2 size={11} /> : <Play size={11} />}<span>{loops ? "Loop" : "Once"}</span></button>
+                              <button data-testid={`scene-video-audio-${asset.id}`} className={`scene-member-audio ${asset.includeAudio ? "active" : ""}`} aria-label={`${asset.includeAudio ? "Mute" : "Include"} ${asset.name} video sound`} title={asset.includeAudio ? "Mute this video" : "Include this video’s sound"} aria-pressed={Boolean(asset.includeAudio)} onClick={(event) => { event.stopPropagation(); toggleVideoAudio(asset); }}>{asset.includeAudio ? <Volume2 size={13} /> : <VolumeX size={13} />}</button>
+                            </>}
+                            <span className="scene-member-focus"><select data-testid={`scene-member-focus-${asset.id}`} aria-label={`Point focus size for ${asset.name}`} value={focusMode} onChange={(event) => setSceneMemberFocusMode(scene, asset.id, event.target.value as SceneMemberFocusMode)}>{SCENE_MEMBER_FOCUS_MODES.map((mode) => <option key={mode.id} value={mode.id}>{mode.label}</option>)}</select><ChevronDown size={11} /></span>
+                          </span>;
+                        })}
                       </div>
                       <div className="scene-inline-controls">
-                        <label><span>Scene gesture</span><div className="select-box full"><select data-testid={`scene-gesture-${scene.id}`} aria-label={`Gesture for ${scene.name}`} value={scene.gesture ?? ""} onChange={(event) => assignSceneGesture(scene.id, (event.target.value || undefined) as GestureId | undefined)}><option value="">Unassigned</option>{GESTURES.map((gesture) => { const owner = gestureOwner(gesture.id, assets, scenes, { kind: "scene", id: scene.id }); return <option key={gesture.id} value={gesture.id} disabled={Boolean(owner)}>{gesture.label}{owner ? ` — ${shortName(owner.name, 14)}` : ""}</option>; })}</select><ChevronDown size={15} /></div></label>
+                        <label><span>Scene gesture</span><div className="select-box full"><select data-testid={`scene-gesture-${scene.id}`} aria-label={`Gesture for ${scene.name}`} value={scene.gesture ?? ""} onChange={(event) => assignSceneGesture(scene.id, (event.target.value || undefined) as GestureId | undefined)}><option value="">Unassigned</option>{ACTIVATION_GESTURES.map((gesture) => <option key={gesture.id} value={gesture.id}>{gestureOptionLabel(gesture.id, layerId, scene.gesture)}</option>)}</select><ChevronDown size={15} /></div></label>
                         <label><span>Collage</span><div className="select-box full"><select aria-label={`Collage template for ${scene.name}`} value={scene.layout} onChange={(event) => commitSceneUpdates(scene.id, { layout: event.target.value as SceneLayout, memberTransforms: undefined, memberOrder: undefined })}>{SCENE_TEMPLATES.map((template) => <option key={template.id} value={template.id}>{template.label}</option>)}</select><ChevronDown size={15} /></div></label>
-                        <label><span>Size</span><div className="select-box full"><select data-testid={`scene-size-${scene.id}`} aria-label={`Size for ${scene.name}`} value={scene.size} onChange={(event) => commitSceneUpdates(scene.id, { size: event.target.value as AssetSize, transform: undefined })}>{ASSET_SIZES.map((size) => <option key={size.id} value={size.id}>{size.label}</option>)}</select><ChevronDown size={15} /></div></label>
-                        <label><span>Entrance</span><div className="select-box full"><select aria-label={`Entrance animation for ${scene.name}`} value={scene.entranceAnimation ?? "fade"} onChange={(event) => commitSceneUpdates(scene.id, { entranceAnimation: event.target.value as EntranceAnimation })}>{ENTRANCE_ANIMATIONS.map((animation) => <option key={animation.id} value={animation.id}>{animation.label}</option>)}</select><ChevronDown size={15} /></div></label>
+                        <label><span>Camera + scene</span><div className="select-box full"><select data-testid={`scene-reveal-${scene.id}`} aria-label={`Side reveal for ${scene.name}`} value={scene.revealSide ?? "none"} onChange={(event) => commitSceneUpdates(scene.id, { revealSide: event.target.value as SceneRevealSide, transform: undefined })}><option value="none">Static collage</option><option value="left">Reveal from left</option><option value="right">Reveal from right</option></select><ChevronDown size={15} /></div></label>
+                        <label><span>{scene.revealSide === "left" || scene.revealSide === "right" ? "Panel width" : "Size"}</span><div className="select-box full"><select data-testid={`scene-size-${scene.id}`} aria-label={`${scene.revealSide === "left" || scene.revealSide === "right" ? "Panel width" : "Size"} for ${scene.name}`} value={scene.size} onChange={(event) => commitSceneUpdates(scene.id, { size: event.target.value as AssetSize, transform: undefined })}>{scene.revealSide === "left" || scene.revealSide === "right" ? <><option value="small">30%</option><option value="medium">40%</option><option value="full">50%</option></> : ASSET_SIZES.map((size) => <option key={size.id} value={size.id}>{size.label}</option>)}</select><ChevronDown size={15} /></div></label>
+                        {scene.revealSide === "left" || scene.revealSide === "right" ? <label><span>Reveal motion</span><div className="select-box full"><select data-testid={`scene-reveal-motion-${scene.id}`} aria-label={`Reveal motion for ${scene.name}`} value={scene.revealMotion ?? "smooth"} onChange={(event) => commitSceneUpdates(scene.id, { revealMotion: event.target.value as SceneRevealMotion })}>{SCENE_REVEAL_MOTIONS.map((motion) => <option key={motion.id} value={motion.id}>{motion.label}</option>)}</select><ChevronDown size={15} /></div></label> : <label><span>Entrance</span><div className="select-box full"><select aria-label={`Entrance animation for ${scene.name}`} value={scene.entranceAnimation ?? "fade"} onChange={(event) => commitSceneUpdates(scene.id, { entranceAnimation: event.target.value as EntranceAnimation })}>{ENTRANCE_ANIMATIONS.map((animation) => <option key={animation.id} value={animation.id}>{animation.label}</option>)}</select><ChevronDown size={15} /></div></label>}
+                        <label><span>While live</span><div className="select-box full"><select data-testid={`scene-motion-${scene.id}`} aria-label={`Motion while ${scene.name} is live`} value={scene.motionEffect ?? "none"} onChange={(event) => commitSceneUpdates(scene.id, { motionEffect: event.target.value as MotionEffect })}>{MOTION_EFFECTS.map((motion) => <option key={motion.id} value={motion.id}>{motion.label}</option>)}</select><ChevronDown size={15} /></div></label>
                         <label><span>Cue sound</span><div className="select-box full"><select aria-label={`Cue sound for ${scene.name}`} value={scene.cueSound ?? "none"} onChange={(event) => commitSceneUpdates(scene.id, { cueSound: event.target.value as CueSound })}>{CUE_SOUNDS.map((sound) => <option key={sound.id} value={sound.id}>{sound.label}</option>)}</select><ChevronDown size={15} /></div></label>
                         <label className="stage-background-control">
-                          <span>Stage behind scene</span>
+                          <span>{scene.revealSide === "left" || scene.revealSide === "right" ? "Panel background" : "Stage behind scene"}</span>
                           <div className={`stage-background-choice ${scene.stageBackground === "custom" ? "with-colour" : ""}`}>
                             <div className="select-box full"><select data-testid={`scene-background-${scene.id}`} aria-label={`Stage background for ${scene.name}`} value={scene.stageBackground ?? "camera"} onChange={(event) => commitSceneUpdates(scene.id, { stageBackground: event.target.value as StageBackground })}>{STAGE_BACKGROUNDS.map((background) => <option key={background.id} value={background.id}>{background.label}</option>)}</select><ChevronDown size={15} /></div>
                             {scene.stageBackground === "custom" && <input data-testid={`scene-background-colour-${scene.id}`} aria-label={`Stage background colour for ${scene.name}`} type="color" value={scene.stageBackgroundColor ?? "#111111"} onChange={(event) => commitSceneUpdates(scene.id, { stageBackgroundColor: event.target.value })} />}
@@ -3386,19 +6196,19 @@ export default function App() {
             </section>
           )}
 
-          <div className="section-label asset-section-label"><span>Standalone media</span><b>{standaloneAssets.length}</b></div>
+          {false && <><div className="section-label asset-section-label"><span>Standalone media</span><b>{standaloneAssets.length}</b></div>
           <div className="asset-stack">
             {assets.length === 0 ? (
               <div className="empty-assets"><ImageIcon size={21} /><span>Imported assets will appear here.</span></div>
             ) : standaloneAssets.length === 0 ? (
               <p className="grouped-assets-note"><Layers3 size={15} /> All imported media is grouped inside scenes.</p>
             ) : standaloneAssets.map((asset) => (
-              <article key={asset.id} className={`asset-item inline-asset ${liveLayerIds.includes(asset.id) ? "live" : ""} ${asset.id === activeLayerId ? "focused" : ""}`}>
+              <article id={`library-layer-${asset.id}`} tabIndex={-1} key={asset.id} className={`asset-item inline-asset ${liveLayerIds.includes(asset.id) ? "live" : ""} ${asset.id === activeLayerId ? "focused" : ""}`}>
                 <div className="asset-identity-row">
                   <button className="asset-icon asset-preview-button" aria-label={`Activate ${asset.name}`} onClick={() => void activateLayerFromLibrary(resolveLayer(asset.id, assets, scenes) as StudioLayer)}>
                     {asset.kind === "image" ? <img src={asset.sourceUrl} alt="" /> : asset.kind === "video" ? <video src={asset.sourceUrl} muted playsInline preload="metadata" aria-hidden="true" /> : asset.kind === "csv" ? <FileSpreadsheet size={26} /> : <FileJson2 size={26} />}
                   </button>
-                  <span className="asset-copy"><strong title={asset.name}>{shortName(asset.name, 28)}</strong><small>{asset.kind.toUpperCase()}{asset.id === activeLayerId ? " · FOCUSED" : liveLayerIds.includes(asset.id) ? " · LIVE" : ""}</small></span>
+                  <button className="asset-copy asset-copy-activate" aria-label={`Activate ${asset.name} from media library`} onClick={() => void activateLayerFromLibrary(resolveLayer(asset.id, assets, scenes) as StudioLayer)}><strong title={asset.name}>{shortName(asset.name, 28)}</strong><small>{asset.kind.toUpperCase()}{asset.id === activeLayerId ? " · FOCUSED" : liveLayerIds.includes(asset.id) ? " · LIVE" : ""}</small></button>
                   {(asset.kind === "image" || asset.kind === "video") && <button className="media-edit-button" aria-label={`${asset.kind === "video" ? "Trim" : "Crop"} ${asset.name}`} title={asset.kind === "video" ? "Trim video" : "Crop image"} onClick={() => openAssetEditor(asset)}>{asset.kind === "video" ? <Scissors size={16} /> : <Crop size={16} />}</button>}
                   <button className="remove-button" aria-label={`Remove ${asset.name}`} onClick={() => removeAsset(asset)}><Trash2 size={16} /></button>
                 </div>
@@ -3409,10 +6219,7 @@ export default function App() {
                     <div className="select-box full">
                       <select data-testid={`gesture-select-${asset.id}`} aria-label={`Gesture for ${asset.name}`} value={asset.gesture ?? ""} onChange={(event) => assignGesture(asset.id, (event.target.value || undefined) as GestureId | undefined)}>
                         <option value="">Unassigned</option>
-                        {GESTURES.map((gesture) => {
-                          const owner = gestureOwner(gesture.id, assets, scenes, { kind: "asset", id: asset.id });
-                          return <option key={gesture.id} value={gesture.id} disabled={Boolean(owner)}>{gesture.label}{owner ? ` — ${shortName(owner.name, 14)}` : ""}</option>;
-                        })}
+                        {ACTIVATION_GESTURES.map((gesture) => <option key={gesture.id} value={gesture.id}>{gestureOptionLabel(gesture.id, asset.id, asset.gesture)}</option>)}
                       </select><ChevronDown size={16} />
                     </div>
                   </label>
@@ -3435,9 +6242,21 @@ export default function App() {
                     </div>
                   </label>
 
+                  {(asset.placement === "left" || asset.placement === "right") && (
+                    <label className="camera-reflow-control">
+                      <span>Camera layout</span>
+                      <div className="select-box full"><select data-testid={`camera-reflow-${asset.id}`} aria-label={`Camera layout for ${asset.name}`} value={asset.cameraReflow ?? "overlay"} onChange={(event) => updateAsset(asset.id, { cameraReflow: event.target.value as CameraReflow, transform: undefined })}><option value="overlay">Overlay camera</option><option value="make-room">Make room</option></select><ChevronDown size={16} /></div>
+                    </label>
+                  )}
+
                   <label>
                     <span>Entrance</span>
                     <div className="select-box full"><select aria-label={`Entrance animation for ${asset.name}`} value={asset.entranceAnimation ?? "fade"} onChange={(event) => updateAsset(asset.id, { entranceAnimation: event.target.value as EntranceAnimation })}>{ENTRANCE_ANIMATIONS.map((animation) => <option key={animation.id} value={animation.id}>{animation.label}</option>)}</select><ChevronDown size={16} /></div>
+                  </label>
+
+                  <label>
+                    <span>While live</span>
+                    <div className="select-box full"><select data-testid={`motion-select-${asset.id}`} aria-label={`Motion while ${asset.name} is live`} value={asset.motionEffect ?? "none"} onChange={(event) => updateAsset(asset.id, { motionEffect: event.target.value as MotionEffect })}>{MOTION_EFFECTS.map((motion) => <option key={motion.id} value={motion.id}>{motion.label}</option>)}</select><ChevronDown size={16} /></div>
                   </label>
 
                   <label>
@@ -3464,6 +6283,12 @@ export default function App() {
                           {asset.includeAudio ? <Volume2 size={17} /> : <VolumeX size={17} />}{asset.includeAudio ? "On" : "Muted"}
                         </button>
                       </div>
+                      <div className="video-audio-control video-playback-control">
+                        <span><strong>Playback</strong><small>{normalizeVideoPlaybackMode(asset.videoPlayback) === "loop" ? "Restarts until hidden" : "Hides after the first run"}</small></span>
+                        <button data-testid={`video-playback-${asset.id}`} aria-pressed={normalizeVideoPlaybackMode(asset.videoPlayback) === "loop"} onClick={() => toggleVideoPlayback(asset)}>
+                          {normalizeVideoPlaybackMode(asset.videoPlayback) === "loop" ? <Repeat2 size={17} /> : <Play size={17} />}{normalizeVideoPlaybackMode(asset.videoPlayback) === "loop" ? "Loop" : "Once"}
+                        </button>
+                      </div>
                       {hasVideoTrim(asset.videoTrim, asset.mediaDuration ?? 0) && <button className="asset-edit-summary" onClick={() => openAssetEditor(asset)}><Scissors size={14} /> {formatEditTime(normalizeVideoTrim(asset.videoTrim, asset.mediaDuration ?? 0).start)}–{formatEditTime(normalizeVideoTrim(asset.videoTrim, asset.mediaDuration ?? 0).end)}</button>}
                     </>
                   )}
@@ -3487,10 +6312,10 @@ export default function App() {
                 </div>
               </article>
             ))}
-          </div>
+          </div></>}
           <details className="advanced library-advanced">
             <summary><Settings2 size={16} /> Advanced settings <ChevronDown size={15} /></summary>
-            <label><span>Hold threshold <b>{timing.holdMs} ms</b></span><input aria-label="Hold threshold" type="range" min={MIN_GESTURE_HOLD_MS} max="900" step="50" value={timing.holdMs} onChange={(event) => setTiming((current) => ({ ...current, holdMs: Math.max(MIN_GESTURE_HOLD_MS, Number(event.target.value)) }))} /></label>
+            <label><span>Hold threshold <b>{timing.holdMs} ms</b></span><input aria-label="Hold threshold" type="range" min={MIN_GESTURE_HOLD_MS} max="900" step="10" value={timing.holdMs} onChange={(event) => setTiming((current) => ({ ...current, holdMs: Math.max(MIN_GESTURE_HOLD_MS, Number(event.target.value)) }))} /></label>
             <label><span>Cooldown <b>{timing.cooldownMs} ms</b></span><input type="range" min="450" max="1600" step="50" value={timing.cooldownMs} onChange={(event) => setTiming((current) => ({ ...current, cooldownMs: Number(event.target.value) }))} /></label>
             <label><span>Palm lock <b>{palmHoldMs} ms</b></span><input type="range" min="150" max="500" step="25" value={palmHoldMs} onChange={(event) => setPalmHoldMs(Number(event.target.value))} /></label>
             <label className="media-monitor-setting"><span>Monitor enabled video audio <b>{monitorMediaAudio ? "On" : "Off"}</b></span><input type="checkbox" checked={monitorMediaAudio} onChange={toggleMediaMonitoring} /></label>
@@ -3562,58 +6387,40 @@ export default function App() {
             ><FlipHorizontal2 size={17} /><span>Mirror</span></button>
           </header>
 
-          <section className={`screen-share-bar ${screenPhase}`} aria-label="Screen capture source">
-            <div className="screen-share-copy">
-              <span className="screen-share-icon">{screenPhase === "permission" ? <LoaderCircle className="spin" size={18} /> : <ScreenShare size={18} />}</span>
-              <span>
-                <strong>{screenPhase === "ready" ? screenSettings?.label || screenSurfaceName : screenPhase === "permission" ? "Choose what to share" : "Live screen capture"}</strong>
-                <small>{screenPhase === "ready" && screenSettings
-                  ? `${screenSurfaceName} · ${screenSettings.width}×${screenSettings.height} · ${Math.round(screenSettings.frameRate)} fps · ${screenSettings.hasAudio ? "shared audio on" : "no shared audio"} · camera stays live`
-                  : !screenCaptureSupported
-                  ? "Use a current Chrome or Edge browser"
-                  : studioReady
-                  ? "Choose the content tab or game window — do not select Rii-Flow itself"
-                  : "Start Studio, then share a tab, window, or display"}</small>
-                {screenPhase === "ready" && <em>Repeating preview? Choose Change and share the content, not this studio.</em>}
-              </span>
-            </div>
-            {screenPhase === "ready" && screenSettings && (
-              <div className="screen-overlay-controls" aria-label="Screen overlay settings">
-                <label><span>Placement</span><select aria-label="Screen overlay placement" disabled={isRecording} value={screenOverlay.placement} onChange={(event) => updateScreenOverlay({ placement: event.target.value as Placement, transform: undefined })}>{PLACEMENTS.map((placement) => <option key={placement.id} value={placement.id}>{placement.label}</option>)}</select></label>
-                <label><span>Size</span><select aria-label="Screen overlay size" disabled={isRecording} value={screenOverlay.size} onChange={(event) => updateScreenOverlay({ size: event.target.value as AssetSize, transform: undefined })}>{ASSET_SIZES.map((size) => <option key={size.id} value={size.id}>{size.label}</option>)}</select></label>
-                <button className={screenOverlay.visible ? "active" : ""} aria-label={screenOverlay.visible ? "Hide screen overlay" : "Show screen overlay"} aria-pressed={screenOverlay.visible} disabled={isRecording} onClick={() => updateScreenOverlay({ visible: !screenOverlay.visible })}>{screenOverlay.visible ? <Eye size={16} /> : <EyeOff size={16} />}</button>
-                <button className={activeLayerId === SCREEN_OVERLAY_ID ? "active" : ""} aria-label="Adjust screen overlay on stage" aria-pressed={activeLayerId === SCREEN_OVERLAY_ID} disabled={isRecording || !screenOverlay.visible} onClick={selectScreenOverlay}><Move size={16} /><span>Adjust</span></button>
-                <button aria-label="Reset screen overlay position" title="Reset screen overlay position" disabled={isRecording || !screenOverlay.transform} onClick={() => updateScreenOverlay({ transform: undefined })}><RotateCcw size={15} /></button>
-              </div>
-            )}
-            <div className="screen-share-actions">
-              <button className="screen-share-start" disabled={!studioReady || isRecording || screenPhase === "permission" || !screenCaptureSupported} onClick={() => void startScreenShare()}>{screenPhase === "ready" ? "Change" : "Share screen"}</button>
-              {screenPhase === "ready" && <button className="screen-share-stop" aria-label="Stop screen sharing" title="Stop screen sharing" disabled={isRecording} onClick={() => endScreenShare()}><ScreenShareOff size={17} /></button>}
-            </div>
-          </section>
-
-          <div className="stage-area">
+          <div className={`stage-area ${aspectId}`}>
           <div className={`stage-wrap ${aspectId}`} onClick={handleStageClick} onDoubleClick={handleStageDoubleClick}>
             <video ref={cameraVideoRef} className="camera-source" muted playsInline />
             <video ref={screenVideoRef} className="screen-source" muted playsInline />
             <canvas ref={outputCanvasRef} data-testid="output-canvas" width={outputSize.width} height={outputSize.height} />
             <canvas ref={inferenceCanvasRef} className="inference-canvas" width={640} height={360} aria-hidden="true" />
-            {studioReady && cameraBorderSnap && manipulation.mode === "dragging" && (
+            {studioReady && assetDeckOnStage && (!activeAsset || currentStyleLayout.keepSlotsWhileFocused) && currentStyleLayout.slots.map((slot, index) => {
+              const asset = styleAssets[index];
+              if (!asset) return null;
+              return <button
+                key={asset.id}
+                className="style-slot-hit-target"
+                aria-label={`Focus ${asset.name}`}
+                title={`Focus ${asset.name}`}
+                style={{ left: `${slot.x / outputSize.width * 100}%`, top: `${slot.y / outputSize.height * 100}%`, width: `${slot.width / outputSize.width * 100}%`, height: `${slot.height / outputSize.height * 100}%` }}
+                onClick={(event) => { event.stopPropagation(); focusVideoStyleAsset(asset); }}
+              />;
+            })}
+            {studioReady && activeAsset && activeGeometry && (
               <div
-                className={`camera-border-snap ${cameraBorderSnap}`}
-                data-testid="camera-border-snap"
+                className={`scene-member-lock active-asset-lock ${manipulation.mode}`}
+                data-testid="active-asset-lock"
                 aria-hidden="true"
                 style={{
-                  left: `${visibleCameraViewport.x / outputSize.width * 100}%`,
-                  top: `${visibleCameraViewport.y / outputSize.height * 100}%`,
-                  width: `${visibleCameraViewport.width / outputSize.width * 100}%`,
-                  height: `${visibleCameraViewport.height / outputSize.height * 100}%`
+                  left: `${activeGeometry.rect.x / outputSize.width * 100}%`,
+                  top: `${activeGeometry.rect.y / outputSize.height * 100}%`,
+                  width: `${activeGeometry.rect.width / outputSize.width * 100}%`,
+                  height: `${activeGeometry.rect.height / outputSize.height * 100}%`
                 }}
-              ><i /></div>
+              />
             )}
             {studioReady && activeSceneMemberGeometry && (
               <div
-                className={`scene-member-lock ${manipulation.mode} ${sceneTemplateSnapped && manipulation.mode !== "idle" ? "template-snapped" : ""} ${selectedSceneMemberId && !sceneMemberTargetId ? "mouse-selected" : ""}`}
+                className={`scene-member-lock ${manipulation.mode} ${selectedSceneMemberId && !sceneMemberTargetId ? "mouse-selected" : ""}`}
                 data-testid="scene-member-lock"
                 style={{
                   left: `${activeSceneMemberGeometry.rect.x / outputSize.width * 100}%`,
@@ -3625,7 +6432,7 @@ export default function App() {
             )}
             {studioReady && activeLayer && pointerEditorGeometry && !isRecording && !isFinalizing && (
               <div
-                className={`stage-layer-editor ${activeSceneMemberEditorGeometry ? "scene-member-editor" : ""} ${activeLayer.kind === "scene" && sceneTemplateSnapped && manipulation.mode !== "idle" ? "template-snapped" : ""}`}
+                className={`stage-layer-editor ${activeSceneMemberEditorGeometry ? "scene-member-editor" : ""}`}
                 style={{
                   left: `${pointerEditorGeometry.rect.x / outputSize.width * 100}%`,
                   top: `${pointerEditorGeometry.rect.y / outputSize.height * 100}%`,
@@ -3656,10 +6463,15 @@ export default function App() {
                 <small>{phaseMessage}</small>
               </div>
             )}
+            {studioReady && pointFocus && <div className={`point-focus-indicator ${pointFocus.targetName ? "target" : ""}`} data-testid="point-focus-indicator" aria-hidden="true" style={{ left: `${pointFocus.x * 100}%`, top: `${pointFocus.y * 100}%`, background: `conic-gradient(var(--rii-accent) ${Math.max(4, pointFocus.progress * 360)}deg, rgba(255,255,255,.25) 0deg)` }}><i />{pointFocus.targetName && <small>{shortName(pointFocus.targetName, 18)}</small>}</div>}
             {activeLayer && <div className="activation-notice" key={`${activeLayer.id}-${activatedAt}`}><Radio size={13} /> {shortName(layerName(activeLayer), 30)} activated</div>}
-            {activeScene && activeSceneSoloId && <div className="scene-solo-badge" data-testid="scene-solo"><Eye size={13} /> SOLO · {shortName(assets.find((asset) => asset.id === activeSceneSoloId)?.name ?? "Asset", 20)}<small>Double-click to restore collage</small></div>}
+            {morphExitAssetId && <div className="morph-exit-notice"><Sparkles size={14} /> Morphing away</div>}
+            {spotlight && spotlight.progress >= 0.35 && <div className="spotlight-notice"><Eye size={14} /><span><small>SPOTLIGHT</small><strong>{shortName(spotlight.name, 24)}</strong></span></div>}
+            {isRecording && liveWordSpark && <div className="voice-word-spark" key={liveWordSpark.id} aria-live="polite"><Sparkles size={15} /><span><small>Word spark</small><strong>Emphasis captured</strong></span></div>}
+            {activeScene && activeSceneSoloId && <div className="scene-solo-badge" data-testid="scene-solo"><Eye size={13} /> FOCUS · {shortName(assets.find((asset) => asset.id === activeSceneSoloId)?.name ?? "Asset", 20)}<small>Point again or double-click to restore</small></div>}
+            {liveBudgetNotice && <div className="performance-guard-notice" data-testid="performance-guard"><ShieldCheck size={13} />{liveBudgetNotice}</div>}
             {activeLayer && manipulation.mode !== "idle" && (
-              <div className={`manipulation-chip ${manipulation.mode} ${sceneTemplateSnapped ? "template-snapped" : ""}`} data-testid="manipulation-status">
+              <div className={`manipulation-chip ${manipulation.mode}`} data-testid="manipulation-status">
                 {manipulation.mode === "scaling" || manipulation.mode === "arming-scale" ? <Maximize2 size={17} /> : <Move size={17} />}
                 <span>{manipulationHeadline}</span>
                 {(manipulation.mode === "arming-drag" || manipulation.mode === "arming-scale") && <i><b style={{ width: `${manipulation.progress * 100}%` }} /></i>}
@@ -3668,6 +6480,38 @@ export default function App() {
 
           </div>
           </div>
+
+          <section className="live-timeline" aria-label="Recording timeline">
+            <header>
+              <span><ListVideo size={16} /><strong>Director Track</strong></span>
+              <span className="director-track-actions">
+                {selectedDirectorEvent && !isRecording && <>
+                  <button type="button" title="Move cue 0.25 seconds earlier" onClick={() => nudgeSelectedDirectorEvent(-250)}>−.25s</button>
+                  <button type="button" title="Move cue 0.25 seconds later" onClick={() => nudgeSelectedDirectorEvent(250)}>+.25s</button>
+                  <button type="button" className="danger" title="Remove cue from Director Track" onClick={removeSelectedDirectorEvent}><Trash2 size={11} /></button>
+                </>}
+                <button type="button" disabled={!timelineEvents.length} title="Undo last director action" onClick={undoLastDirectorAction}><RotateCcw size={11} /> Undo</button>
+                <small>{isRecording ? "Director Track is recording" : timelineEvents.length ? "Select a cue to edit" : "Appears while recording"}</small>
+              </span>
+            </header>
+            <div className="timeline-ruler" aria-hidden="true">
+              {[0, 1, 2, 3, 4].map((tick) => <span key={tick} style={{ left: `${tick * 25}%` }}>{formatDuration(Math.round(timelineDurationMs * tick / 4 / 1000))}</span>)}
+            </div>
+            <div className="timeline-track camera-track">
+              <b>CAM</b><i className="camera-clip"><Camera size={12} /> Camera</i>
+            </div>
+            <div className="timeline-track visual-track">
+              <b>VIS</b><div className="timeline-clips">
+                {timelineEvents.map((event) => {
+                  const start = event.startMs / timelineDurationMs * 100;
+                  const end = (event.endMs ?? openTimelineEnd) / timelineDurationMs * 100;
+                  return <button key={event.id} type="button" className={`${event.endMs === null ? "live" : ""} ${event.kind} ${selectedDirectorEventId === event.id ? "selected" : ""}`} aria-label={`${event.kind} cue ${event.label}`} title={`${event.kind === "scene" ? "Scene" : "Visual"}: ${event.label}`} style={{ left: `${start}%`, width: `${Math.max(1.5, end - start)}%` }} onClick={() => setSelectedDirectorEventId(event.id)}><span>{event.kind === "scene" ? "SCENE · " : ""}{shortName(event.label, 18)}</span></button>;
+                })}
+                {voiceEmphasisMarkers.map((marker) => <span key={marker.id} className="word-spark-tick" title={`Word spark at ${marker.time.toFixed(1)} seconds`} style={{ left: `${Math.min(99, marker.time * 1_000 / timelineDurationMs * 100)}%` }} />)}
+                {isRecording && <em className="timeline-playhead" style={{ left: `${Math.min(100, openTimelineEnd / timelineDurationMs * 100)}%` }} />}
+              </div>
+            </div>
+          </section>
 
           <footer className="studio-console" aria-label="Studio status and recording controls">
             <div className={`audio-console ${microphonePhase}`} title={activeMicrophoneLabel} aria-label={`Microphone level · ${activeMicrophoneLabel}`}>
@@ -3702,15 +6546,196 @@ export default function App() {
             </div>
           </footer>
 
+          <section className="takes-inline-panel canvas-downloads-panel" aria-label="Downloads and edits">
+            <div className="takes-inline-heading"><span><Download size={19} /><strong>Downloads & edits</strong></span><b>{recordings.length}</b></div>
+            <section className="recordings-panel durable-recordings">
+              {recordings.length === 0 ? (
+                <div className="empty-recordings"><Video size={22} /><span>Your finished recordings will appear here to rename, trim, caption, download, or delete.</span></div>
+              ) : (
+                <div className="recording-list" tabIndex={0} aria-label="Finished takes">
+                  {recordings.map((recording) => (
+                    <article key={recording.id} className={`recording-item ${recording.rating}`}>
+                      <button className="take-preview" aria-label={`Preview ${recording.fileName}`} onClick={() => void openTakePreview(recording)}><span><Play size={16} fill="currentColor" /></span></button>
+                      <div className="take-copy">
+                        {editingTakeId === recording.id ? (
+                          <span className="take-rename"><input autoFocus aria-label="Rename recording" placeholder="Name this recording" value={editingTakeName} onChange={(event) => setEditingTakeName(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void commitTakeRename(recording); if (event.key === "Escape") { setEditingTakeId(null); setEditingTakeName(""); } }} /><button aria-label="Save recording name" disabled={!editingTakeName.trim()} onClick={() => void commitTakeRename(recording)}><Check size={13} /></button></span>
+                        ) : <strong title={recording.fileName}>{shortName(recording.fileName.replace(/\.mp4$/i, ""), 28)}</strong>}
+                        <small>{formatDuration(recording.durationSeconds)} · {formatBytes(recording.bytes)} · {recording.width}×{recording.height}</small>
+                        <em>{new Date(recording.createdAt).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</em>
+                      </div>
+                      <div className="take-actions">
+                        <button className={recording.rating === "favorite" ? "active" : ""} aria-label="Favorite take" onClick={() => void rateTake(recording, "favorite")}><Heart size={14} fill={recording.rating === "favorite" ? "currentColor" : "none"} /></button>
+                        <button aria-label="Rename recording" onClick={() => { setEditingTakeId(recording.id); setEditingTakeName(recording.fileName.replace(/\.mp4$/i, "")); }}><Pencil size={14} /></button>
+                        <button aria-label={`Finish and download ${recording.fileName}`} onClick={() => void openFinishTake(recording)}>{recording.url ? <Download size={14} /> : <Archive size={14} />}</button>
+                        <button aria-label={`Remove or delete ${recording.fileName}`} title="Remove or delete take" onClick={() => setPendingDeleteTakeId(recording.id)}><Trash2 size={14} /></button>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              )}
+            </section>
+          </section>
+
         </section>
 
-        <aside className="signal-rail" aria-label="Gesture detection and takes">
+        <aside className="signal-rail creator-sidebar" data-sidebar-page={sidebarPage} aria-label="Styles, media, gesture detection and takes">
+          <header className="creator-sidebar-header">
+            <div className="creator-brand"><span><Hand size={18} /></span><div><strong>Rii-Flow</strong><small>PRESENTATION OS</small></div></div>
+            <div className={`creator-gesture ${detected.gesture || manipulation.mode !== "idle" ? "active" : ""}`} aria-live="polite">
+              <i />
+              <span><small>Gesture</small><strong>{manipulation.mode !== "idle" ? manipulationHeadline : gestureLabel(detected.gesture)}</strong></span>
+            </div>
+          </header>
+
+          <nav className="creator-page-tabs" aria-label="Sidebar pages">
+            <button className={sidebarPage === "setup" ? "active" : ""} onClick={() => { setSidebarPage("setup"); setWidgetPanelOpen(false); }}><LayoutGrid size={15} /> Setup</button>
+            <button className={sidebarPage === "widgets" ? "active" : ""} onClick={() => { setSidebarPage("widgets"); setWidgetPanelOpen(true); setWidgetPanelMode("stickers"); }}><Sparkles size={15} /> Widgets</button>
+            <button className={sidebarPage === "downloads" ? "active" : ""} onClick={() => { setSidebarPage("downloads"); setWidgetPanelOpen(false); }}><Download size={15} /> Downloads</button>
+          </nav>
+
+          <section className="creator-recording-destination" aria-label="Recording destination">
+            <div className={`workspace-destination ${folderPermission === "granted" ? "ready" : "warning"}`}>
+              <span><HardDrive size={18} /></span>
+              <div><small>Recording destination</small><strong>{recordingsDirectory?.name ?? "Session memory"}</strong><em>{folderPermission === "granted" ? "Every take saves here as MP4" : recordingsDirectory ? "Reconnect or choose another folder" : folderPermission === "unsupported" ? "Folder selection needs Chrome or Edge" : "Choose where finished recordings are saved"}</em></div>
+              <button data-testid="recording-folder-button" disabled={isRecording || isFinalizing} aria-label={recordingsDirectory ? "Change recording folder" : "Choose recording folder"} title={recordingsDirectory ? "Change recording folder" : "Choose recording folder"} onClick={() => void changeRecordingsFolder()}><FolderOpen size={16} /><span>{recordingsDirectory ? "Change" : "Choose folder"}</span></button>
+            </div>
+          </section>
+
+          <div className="jarvis-command-strip" aria-label="Gesture quick guide">
+            <header><span><strong>Gesture quick guide</strong><small>Keep your hand inside the camera view</small></span><em>4 controls</em></header>
+            <span><b>01</b><span><strong>Point and hold</strong><small>Aim your index fingertip at an item to open it</small></span></span>
+            <span><b>02</b><span><strong>Give a thumbs-up</strong><small>Show or hide the classic media deck</small></span></span>
+            <span><b>03</b><span><strong>Open palm and flick</strong><small>Move sideways near a deck or orbit to scroll</small></span></span>
+            <span><b>04</b><span><strong>Make a fist</strong><small>Close the selected visual or open deck</small></span></span>
+          </div>
+
+          <section className="style-media-panel" aria-labelledby="style-media-title">
+            <header>
+              <span><small>Visual library</small><strong id="style-media-title">Your media</strong></span>
+              <div className="workspace-actions"><button type="button" className="scene-workspace-action" onClick={() => setSceneBuilderOpen((open) => !open)}><span><LayoutGrid size={16} /></span><span><strong>{sceneBuilderOpen ? "Close scene builder" : "Build a scene"}</strong><small>Group media into one reusable layout</small></span></button><button type="button" className="clear-workspace" title="Remove every imported visual, saved scene, and widget from this workspace" disabled={isRecording || isFinalizing || (!assets.length && !scenes.length && !widgets.length)} onClick={clearWorkspace}><span><Trash2 size={17} /></span><span><strong>Clear entire workspace</strong><small>Remove all media, scenes and widgets</small></span></button></div>
+            </header>
+            <input ref={widgetAudioInputRef} className="visually-hidden" type="file" accept="audio/mpeg,audio/mp3,audio/*" onChange={importWidgetAudio} />
+            {sceneBuilderOpen && <div className="quick-creator scene-creator-simple">
+              <header><span><small>Saved moment</small><strong>Make a scene</strong></span><button aria-label="Close scene creator" onClick={() => setSceneBuilderOpen(false)}><X size={15} /></button></header>
+              <p>A scene shows several things together.</p>
+              <input aria-label="Scene name" value={sceneDraftName} onChange={(event) => setSceneDraftName(event.target.value)} />
+              <div className="simple-scene-templates">{SCENE_TEMPLATES.map((template) => <button key={template.id} className={sceneDraftLayout === template.id ? "active" : ""} onClick={() => setSceneDraftLayout(template.id)}><i className={`template-mini ${template.id}`}><b /><b /><b /></i><span><strong>{template.label}</strong><small>{template.detail}</small></span></button>)}</div>
+              <strong className="simple-step-label">Choose at least two pictures or videos</strong>
+              <div className="simple-scene-assets">{assets.filter((asset) => asset.kind !== "text").map((asset) => <button key={asset.id} className={sceneDraftMembers.includes(asset.id) ? "active" : ""} onClick={() => toggleSceneDraftMember(asset.id)}>{asset.kind === "image" ? <img src={asset.sourceUrl} alt="" /> : <Video size={18} />}<span>{shortName(asset.name, 16)}</span>{sceneDraftMembers.includes(asset.id) && <Check size={14} />}</button>)}</div>
+              <button className="quick-create-confirm" disabled={sceneDraftMembers.length < 2} onClick={createScene}><Plus size={15} /> Save scene</button>
+            </div>}
+            {widgetPanelOpen && <div className="quick-creator widget-creator">
+              <header><span><small>Canvas stickers</small><strong>{widgetPanelMode === "stickers" ? "Sticker library" : "Sticker settings"}</strong></span><button aria-label="Close widget creator" onClick={() => setWidgetPanelOpen(false)}><X size={15} /></button></header>
+              <div className="widget-panel-toggle"><button className={widgetPanelMode === "stickers" ? "active" : ""} onClick={() => setWidgetPanelMode("stickers")}><Sparkles size={13} /> Stickers</button><button className={widgetPanelMode === "settings" ? "active" : ""} disabled={!selectedWidget} onClick={() => setWidgetPanelMode("settings")}><Settings2 size={13} /> Settings</button></div>
+              {widgetPanelMode === "stickers" && scenes.length > 0 && <div className="widget-special-picker">{scenes.map((scene) => <button key={scene.id} onClick={() => createCanvasWidget("orbit", { x: .5, y: .5 }, scene.id)}><FolderOpen size={17} /><span><strong>{shortName(scene.name, 20)}</strong><small>Scene file widget</small></span></button>)}</div>}
+              {widgetPanelMode === "stickers" ? <><div className="widget-kind-picker"><button onClick={() => createCanvasWidget("vinyl")}><Music2 size={18} /> Music vinyl</button><button onClick={() => createCanvasWidget("orbit")}><FolderOpen size={18} /> Media files</button><button onClick={() => createCanvasWidget("media")}><Maximize2 size={18} /> Media launcher</button><button onClick={() => createCanvasWidget("bullets")}><ListVideo size={18} /> Bullet list</button><button onClick={() => createCanvasWidget("sticker")}><Sparkles size={18} /> Action sticker</button></div>{widgets.length > 0 && <div className="widget-instance-list">{widgets.filter((widget) => widget.kind !== "live").map((widget) => <div key={widget.id} className={widget.id === selectedWidgetId ? "active" : ""}><button className="widget-instance-main" onClick={() => { setSelectedWidgetId(widget.id); setWidgetPanelMode("settings"); }}><span>{widget.kind === "vinyl" ? <Music2 size={15} /> : widget.kind === "orbit" ? <FolderOpen size={15} /> : widget.kind === "media" ? <Maximize2 size={15} /> : widget.kind === "bullets" ? <ListVideo size={15} /> : <Sparkles size={15} />}</span><span><strong>{widget.title}</strong><small>{widget.visible ? "Visible" : "Hidden"} · {widget.kind === "vinyl" ? widget.audioName ?? "Needs MP3" : widget.kind === "orbit" ? `${widget.assetIds?.length ?? 0} files` : widget.kind === "media" ? assets.find((asset) => asset.id === widget.actionAssetId)?.name ?? "Choose one media" : widget.kind === "bullets" ? `${widget.items.length} bullets` : "Action sticker"}</small></span></button><span className="widget-instance-actions"><button className="widget-visibility-toggle" onClick={() => { updateCanvasWidget(widget.id, { visible: !widget.visible, open: widget.visible ? false : widget.open, playing: widget.visible ? false : widget.playing, active: widget.visible ? false : widget.active }); if (widget.visible) widgetAudioRef.current.get(widget.id)?.pause(); }}>{widget.visible ? "Hide" : "Show"}</button><button className="widget-remove-button" aria-label={`Remove ${widget.title}`} onClick={() => removeCanvasWidget(widget)}><Trash2 size={13} /> Remove</button></span></div>)}</div>}</> : !selectedWidget ? <p className="widget-settings-empty">Choose a sticker from the library first.</p> : <>
+                <label className="widget-field"><span>Name</span><input value={selectedWidget.title} onChange={(event) => updateCanvasWidget(selectedWidget.id, { title: event.target.value })} /></label>
+                <label className="widget-field"><span>Frame</span><select aria-label={`${selectedWidget.title} frame`} value={selectedWidget.frameStyle ?? "none"} onChange={(event) => updateCanvasWidget(selectedWidget.id, { frameStyle: event.target.value as WidgetFrameStyle })}><option value="none">No frame</option><option value="windows">Windows desktop</option><option value="mac">Mac desktop</option><option value="rpg">RPG tile</option></select></label>
+                <label className="widget-field"><span>Widget colour</span><input aria-label={`${selectedWidget.title} colour`} type="color" value={selectedWidget.color ?? (selectedWidget.kind === "sticker" ? "#ffffff" : selectedWidget.kind === "orbit" ? "#168bf2" : "#a9002f")} onChange={(event) => updateCanvasWidget(selectedWidget.id, { color: event.target.value })} /></label>
+                {selectedWidget.kind === "vinyl" && <><div className="widget-audio-controls"><button className="widget-audio-button" onClick={() => widgetAudioInputRef.current?.click()}><Music2 size={15} /> {selectedWidget.audioName ?? "Choose an MP3"}</button>{selectedWidget.audioName && <button className="widget-audio-preview" onClick={() => activateCanvasWidget(selectedWidget)}>{selectedWidget.playing ? "Pause music" : "Play music"}</button>}</div><label className="widget-field"><span>Music volume <b>{Math.round((selectedWidget.volume ?? .8) * 100)}%</b></span><input aria-label="Vinyl music volume" type="range" min="0" max="1" step="0.01" value={selectedWidget.volume ?? .8} onChange={(event) => { const volume = Number(event.target.value); const audio = widgetAudioRef.current.get(selectedWidget.id); if (audio) audio.volume = volume; updateCanvasWidget(selectedWidget.id, { volume }); }} /></label><p className="widget-point-help"><MousePointer2 size={13} /> Point and hold on the vinyl to play or pause.</p></>}
+                {selectedWidget.kind === "media" && <><label className="widget-field"><span>Standalone media</span><select aria-label="Standalone media" value={selectedWidget.actionAssetId ?? ""} onChange={(event) => updateCanvasWidget(selectedWidget.id, { actionAssetId: event.target.value || undefined, active: false })}><option value="">Choose one photo or video</option>{assets.filter((asset) => asset.kind === "image" || asset.kind === "video").map((asset) => <option key={asset.id} value={asset.id}>{asset.name}</option>)}</select></label><button className="widget-audio-button" disabled={!selectedWidget.actionAssetId} onClick={() => activateCanvasWidget(selectedWidget)}><Maximize2 size={15} /> {selectedWidget.active ? "Close full screen" : "Preview full screen"}</button><p className="widget-point-help"><MousePointer2 size={13} /> Point and hold on this launcher: the media fills the canvas and your camera moves to the bottom right.</p></>}
+                {selectedWidget.kind === "live" && <><p className="widget-point-help"><Radio size={13} /> This widget controls the live screen feed. Point and hold to make it the main visual.</p><button className="widget-audio-button" disabled={!screenCaptureSupported || isRecording} onClick={() => void startScreenShare()}><Monitor size={15} /> {screenSettings ? "Change live feed" : "Choose live feed"}</button></>}
+                {selectedWidget.kind === "orbit" && <><p className="widget-point-help"><MousePointer2 size={13} /> Point at the folder to open. Flick your palm tips along the crescent, then point at a file or scene.</p><div className="widget-audio-controls"><button onClick={() => activateCanvasWidget(selectedWidget)}>{selectedWidget.open ? "Close files" : "Preview files"}</button><button onClick={() => updateCanvasWidget(selectedWidget.id, { assetIds: assets.filter((asset) => asset.kind !== "text").map((asset) => asset.id), sceneIds: scenes.map((scene) => scene.id), orbitOffset: 0 })}>Use everything</button></div><strong className="orbit-picker-label">Media files</strong><div className="orbit-asset-picker">{assets.filter((asset) => asset.kind !== "text").map((asset) => { const included = selectedWidget.assetIds?.includes(asset.id) ?? false; return <label key={asset.id} className={included ? "active" : ""}><input type="checkbox" checked={included} onChange={() => updateCanvasWidget(selectedWidget.id, { assetIds: included ? (selectedWidget.assetIds ?? []).filter((id) => id !== asset.id) : [...(selectedWidget.assetIds ?? []), asset.id], orbitOffset: 0 })} /><span>{shortName(asset.name, 22)}</span></label>; })}</div>{scenes.length > 0 && <><strong className="orbit-picker-label">Saved scenes</strong><div className="orbit-asset-picker">{scenes.map((scene) => { const included = selectedWidget.sceneIds?.includes(scene.id) ?? false; return <label key={scene.id} className={included ? "active" : ""}><input type="checkbox" checked={included} onChange={() => updateCanvasWidget(selectedWidget.id, { sceneIds: included ? (selectedWidget.sceneIds ?? []).filter((id) => id !== scene.id) : [...(selectedWidget.sceneIds ?? []), scene.id], orbitOffset: 0 })} /><span>{shortName(scene.name, 22)}</span></label>; })}</div></>}</>}
+                {selectedWidget.kind === "bullets" && <label className="widget-field"><span>One bullet per line</span><textarea rows={4} value={selectedWidget.items.join("\n")} onChange={(event) => { const items = event.target.value.split("\n").filter(Boolean); updateCanvasWidget(selectedWidget.id, { items, revealed: items.length }); }} /></label>}
+                {selectedWidget.kind === "sticker" && <><label className="widget-field"><span>Sticker</span><select value={selectedWidget.sticker} onChange={(event) => updateCanvasWidget(selectedWidget.id, { sticker: event.target.value as CanvasWidget["sticker"] })}><option value="star">Star</option><option value="heart">Heart</option><option value="spark">Spark</option></select></label><label className="widget-field"><span>Pointing opens</span><select value={selectedWidget.actionAssetId ?? ""} onChange={(event) => updateCanvasWidget(selectedWidget.id, { actionAssetId: event.target.value || undefined })}><option value="">Choose media</option>{assets.map((asset) => <option key={asset.id} value={asset.id}>{asset.name}</option>)}</select></label></>}
+                <div className="widget-position-grid"><label><span>Left / right</span><input type="range" min="0.08" max="0.92" step="0.01" value={selectedWidget.x} onChange={(event) => updateCanvasWidget(selectedWidget.id, { x: Number(event.target.value) })} /></label><label><span>Up / down</span><input type="range" min="0.1" max="0.9" step="0.01" value={selectedWidget.y} onChange={(event) => updateCanvasWidget(selectedWidget.id, { y: Number(event.target.value) })} /></label><label><span>Size</span><input aria-label={`${selectedWidget.title} size`} type="range" min={selectedWidget.kind === "orbit" ? "0.28" : "0.55"} max="1.8" step="0.04" value={selectedWidget.scale} onChange={(event) => updateCanvasWidget(selectedWidget.id, { scale: Number(event.target.value) })} /></label></div>
+                <div className="widget-editor-actions"><button onClick={() => setWidgetPanelMode("stickers")}>Back to stickers</button><button className={selectedWidget.visible ? "danger" : ""} onClick={() => { updateCanvasWidget(selectedWidget.id, { visible: !selectedWidget.visible, playing: selectedWidget.visible ? false : selectedWidget.playing, active: selectedWidget.visible ? false : selectedWidget.active }); if (selectedWidget.visible) widgetAudioRef.current.get(selectedWidget.id)?.pause(); }}>{selectedWidget.visible ? "Hide sticker" : "Show sticker"}</button></div>
+              </>}
+            </div>}
+            <button className="style-media-import" disabled={isFinalizing} onClick={() => fileInputRef.current?.click()}>
+              <span><Upload size={20} /></span>
+              <span><strong>Add photos or videos</strong><small>Images, videos, CSV, or JSON</small></span>
+              <Plus size={18} />
+            </button>
+            <div className="style-media-list">
+              {scenes.length > 0 && <div className="style-media-section-label"><Layers3 size={12} /><span><strong>Scene effects</strong><small>Reusable arrangements; originals stay separate</small></span></div>}
+              {scenes.map((scene) => {
+                const sceneAssets = scene.memberIds.map((id) => assets.find((asset) => asset.id === id)).filter((asset): asset is StudioAsset => Boolean(asset));
+                return <article key={scene.id} className={`style-media-item voice-scene-item ${activeScene?.id === scene.id ? "focused" : ""}`}>
+                  <button className="style-media-thumb scene-grid-thumb" aria-label={`Open ${scene.name}`} onClick={() => { const layer = resolveLayer(sceneLayerId(scene.id), assets, scenes); if (layer) void activateLayerFromLibrary(layer); }}>
+                    {sceneAssets.slice(0, 4).map((asset) => asset.kind === "image" ? <img key={asset.id} src={asset.sourceUrl} alt="" /> : <span key={asset.id}>{asset.kind === "video" ? <Video size={13} /> : <FileSpreadsheet size={13} />}</span>)}
+                  </button>
+                  <div className="style-media-copy"><strong title={scene.name}>{shortName(scene.name, 25)}</strong><small>{activeScene?.id === scene.id ? "Scene on stage" : `${sceneAssets.length} assets · scene option · point to open`}</small></div>
+                </article>;
+              })}
+              {scenes.length > 0 && dockAssets.length > 0 && <div className="style-media-section-label"><ImageIcon size={12} /><span><strong>Individual assets</strong><small>Every original remains independently callable</small></span></div>}
+              {dockAssets.length === 0 && scenes.length === 0 ? (
+                <div className="style-media-empty"><Hand size={21} /><strong>Your media will appear here</strong><small>Import, then point and hold to open.</small></div>
+              ) : dockAssets.map((asset) => (
+                <article key={asset.id} className={`style-media-item ${asset.id === SCREEN_OVERLAY_ID ? "screen-asset" : ""} ${activeAsset?.id === asset.id ? "focused" : ""}`}>
+                  <button className="style-media-thumb" aria-label={`Focus ${asset.name} from media rail`} onClick={() => focusVideoStyleAsset(asset)}>
+                    {asset.id === SCREEN_OVERLAY_ID ? <span className="style-screen-thumb"><Monitor size={22} /><b>LIVE</b></span> : asset.kind === "image" ? <img src={asset.sourceUrl} alt="" /> : asset.kind === "video" ? <video src={asset.sourceUrl} muted playsInline preload="metadata" aria-hidden="true" /> : asset.kind === "text" ? <span className="style-text-thumb"><Type size={22} /><b>{shortName(asset.textContent ?? asset.name, 18)}</b></span> : asset.kind === "csv" ? <FileSpreadsheet size={24} /> : <FileJson2 size={24} />}
+                    {asset.kind === "video" && asset.id !== SCREEN_OVERLAY_ID && <em>{activeAsset?.id === asset.id ? "Playing" : "Paused"}</em>}
+                  </button>
+                  <div className="style-media-copy"><strong title={asset.name}>{asset.id === SCREEN_OVERLAY_ID ? "Shared screen" : shortName(asset.name, 25)}</strong><small>{activeAsset?.id === asset.id ? "Open on stage" : asset.id === SCREEN_OVERLAY_ID ? `${screenSurfaceName} · point to open` : "Point to open"}</small></div>
+                  <div className="style-media-actions">
+                    {asset.id === SCREEN_OVERLAY_ID ? <>
+                      <button disabled={isRecording || screenPhase === "permission"} aria-label="Change shared screen" onClick={() => void startScreenShare()}><Repeat2 size={13} /><span>Change</span></button>
+                      <button className="danger" disabled={isRecording} aria-label="Stop screen sharing" onClick={() => endScreenShare()}><X size={13} /><span>Stop</span></button>
+                    </> : <>
+                      {(asset.kind === "image" || asset.kind === "video") && <button aria-label={`${asset.kind === "video" ? "Trim" : "Crop"} ${asset.name}`} onClick={() => openAssetEditor(asset)}>{asset.kind === "video" ? <Scissors size={13} /> : <Crop size={13} />}<span>{asset.kind === "video" ? "Trim" : "Crop"}</span></button>}
+                      <button aria-label={`Remove ${asset.name}`} onClick={() => removeAsset(asset)}><Trash2 size={13} /><span>Remove</span></button>
+                    </>}
+                  </div>
+                  <label className="style-media-spawn"><Sparkles size={13} /><span>Appears with</span><select aria-label={`Spawn style for ${asset.name}`} disabled={isRecording || isFinalizing} value={spawnStyleFor(asset.entranceAnimation, asset.cueSound)} onChange={(event) => applySpawnStyle(asset, event.target.value as SpawnStyleId)}>{spawnStyleFor(asset.entranceAnimation, asset.cueSound) === "custom" && <option value="custom" disabled>Custom setup</option>}{SPAWN_STYLES.map((style) => <option key={style.id} value={style.id}>{style.label}</option>)}</select><ChevronDown size={13} /></label>
+                </article>
+              ))}
+              {!screenSettings && <article className="style-screen-add">
+                <span><Monitor size={20} /></span>
+                <span><strong>Add screen recording</strong><small>{studioReady ? "A tab, game, app, or display" : "Start Studio first"}</small></span>
+                <button disabled={!screenCaptureSupported || screenPhase === "permission" || !studioReady || isRecording} onClick={() => void startScreenShare()}>{screenPhase === "permission" ? <LoaderCircle className="spin" size={14} /> : <Plus size={14} />} Share</button>
+              </article>}
+            </div>
+            {hiddenStyleAssetCount > 0 && <p className="style-limit-note"><ShieldCheck size={13} /> {videoStyleId === "spatial" ? `Freeform starts with four visible items. Open another from the library whenever you need it.` : videoStyleId === "split-decks" ? `This is a fixed four-card layout. Choose a belt layout to reach ${hiddenStyleAssetCount} more.` : `Four cards visible on stage. Flick near the belt to reach ${hiddenStyleAssetCount} more.`}</p>}
+          </section>
+
+          <section className="video-style-panel" aria-labelledby="video-style-title">
+            <header><span><small>Layout</small><strong id="video-style-title">Choose a video layout</strong></span><em>{isRecording ? "Locked while recording" : "Tap the picture you want"}</em></header>
+            <div className="video-style-grid">
+              {VIDEO_STYLES.map((style) => (
+                <button
+                  key={style.id}
+                  className={`video-style-card ${videoStyleId === style.id ? "active" : ""} ${style.id}`}
+                  aria-pressed={videoStyleId === style.id}
+                  disabled={isRecording || isFinalizing}
+                  onClick={() => selectVideoStyle(style.id)}
+                >
+                  <span className="style-diagram" aria-hidden="true"><i className="diagram-camera" /><i className="diagram-panel" /><b /><b /><b />{style.id === "split-decks" && <b />}</span>
+                  <span><strong>{style.name}</strong><small>{style.detail}</small></span>
+                  {videoStyleId === style.id && <Check size={14} />}
+                </button>
+              ))}
+            </div>
+            <div className="asset-deck-mode" aria-label="Asset deck visibility">
+              <span><Layers3 size={15} /><span><strong>Media deck</strong><small>{assetDeckMode === "always" ? "Ready on stage from the start" : assetDeckVisible ? "Open · fist closes" : "Hidden · thumbs up opens"}</small></span></span>
+              <div>
+                {ASSET_DECK_MODES.map((mode) => <button key={mode.id} type="button" className={assetDeckMode === mode.id ? "active" : ""} aria-pressed={assetDeckMode === mode.id} disabled={isRecording || isFinalizing} title={mode.detail} onClick={() => chooseAssetDeckMode(mode.id)}>{mode.id === "always" ? <Eye size={13} /> : <Hand size={13} />}{mode.label}</button>)}
+              </div>
+              {videoStyleId !== "spatial" && videoStyleId !== "split-decks" && <label className="deck-placement-control"><span>{videoStyleId === "top-shelf" || videoStyleId === "center-shelf" || videoStyleId === "bottom-shelf" ? "Move deck up or down" : "Move deck left or right"}</span><input aria-label="Deck placement" type="range" min={videoStyleId.includes("shelf") ? "0.04" : "0"} max={videoStyleId.includes("shelf") ? "0.8" : "1"} step="0.01" value={deckPlacement} onChange={(event) => setDeckPlacement(Number(event.target.value))} /></label>}
+              {(videoStyleId === "left-rail" || videoStyleId === "right-rail") && <label className="deck-background-control"><span>Media window background</span><span className="deck-background-options">{[
+                ["#15131a", "Ink"], ["#efeae1", "Paper"], ["#5b2027", "Maroon"], ["#17324a", "Blue"]
+              ].map(([color, label]) => <button key={color} type="button" className={panelBackground === color ? "active" : ""} aria-label={`${label} media window background`} title={label} style={{ background: color }} onClick={() => setPanelBackground(color)} />)}<input aria-label="Custom media window background" type="color" value={panelBackground} onChange={(event) => setPanelBackground(event.target.value)} /></span></label>}
+            </div>
+          </section>
+
           <section className={`gesture-signal ${detected.gesture || manipulation.mode !== "idle" ? "active" : ""}`} aria-live="polite">
             <span className="signal-icon"><Hand size={20} /></span>
             <small>Detected</small>
             <strong data-testid="detected-gesture">{manipulation.mode !== "idle" ? manipulationHeadline : gestureLabel(detected.gesture)}</strong>
-            <em>{armed ? "Armed" : "Re-arm"}</em>
+            <em>{armed ? "Ready" : "Hold"}</em>
             <i className="signal-progress"><b style={{ width: `${(manipulation.mode.startsWith("arming") ? manipulation.progress : holdProgress) * 100}%` }} /></i>
+            {activeGestureCue && activeGestureCue.total > 1 && <span className="live-gesture-cue"><small>{gestureLabel(activeGestureCue.gesture)} sequence</small><strong>{activeGestureCue.index + 1}/{activeGestureCue.total} · {shortName(activeGestureCue.name, 18)}</strong></span>}
+          </section>
+
+          <section className="director-rail" aria-label="Live Director status">
+            <header><span><Radio size={15} /> Director</span><b>{directorQueue.length ? `${directorCurrentIndex + 1}/${directorQueue.length}` : "0/0"}</b></header>
+            {directorCurrentCue ? <>
+              <button className={directorCueLive ? "live" : "ready"} onClick={() => void activateLayerFromLibrary(directorCurrentCue)}>
+                <small>{directorCueLive ? "ON STAGE" : "READY"}</small>
+                <strong>{shortName(layerName(directorCurrentCue), 23)}</strong>
+              </button>
+              <div><small>UP NEXT</small><strong>{directorNextCue && directorNextCue.id !== directorCurrentCue.id ? shortName(layerName(directorNextCue), 23) : "Story complete"}</strong></div>
+            </> : <p>Import a visual to begin.</p>}
           </section>
 
           <div className="visually-hidden" aria-hidden="true">
@@ -3721,11 +6746,11 @@ export default function App() {
           </div>
 
           <section className="takes-inline-panel" aria-label="Take library">
-            <div className="takes-inline-heading"><span><ListVideo size={19} /><strong>Takes</strong></span><b data-testid="recording-count">{recordings.length}</b></div>
+            <div className="takes-inline-heading"><span><Download size={19} /><strong>Downloads & edits</strong></span><b data-testid="recording-count">{recordings.length}</b></div>
 
           <section className="recordings-panel durable-recordings">
             {recordings.length === 0 ? (
-              <div className="empty-recordings"><Video size={22} /><span>Your finished takes will collect here.</span></div>
+              <div className="empty-recordings"><Video size={22} /><span>Recorded MP4s appear here for rename, trim, captions, download or deletion.</span></div>
             ) : (
               <div className="recording-list" data-testid="take-list" tabIndex={0} aria-label="Finished takes">
                 {recordings.map((recording) => (
@@ -3742,7 +6767,7 @@ export default function App() {
                       <button className={recording.rating === "favorite" ? "active" : ""} aria-label="Favorite take" onClick={() => void rateTake(recording, "favorite")}><Heart size={14} fill={recording.rating === "favorite" ? "currentColor" : "none"} /></button>
                       <button aria-label="Rename recording" onClick={() => { setEditingTakeId(recording.id); setEditingTakeName(recording.fileName.replace(/\.mp4$/i, "")); }}><Pencil size={14} /></button>
                       <button aria-label={`Finish and download ${recording.fileName}`} onClick={() => void openFinishTake(recording)}>{recording.url ? <Download size={14} /> : <Archive size={14} />}</button>
-                      <button aria-label="Delete take" onClick={() => void removeTake(recording)}><Trash2 size={14} /></button>
+                      <button aria-label={`Remove or delete ${recording.fileName}`} title="Remove or delete take" onClick={() => setPendingDeleteTakeId(recording.id)}><Trash2 size={14} /></button>
                     </div>
                   </article>
                 ))}
@@ -3873,6 +6898,25 @@ export default function App() {
         </div>
       )}
 
+      {pendingDeleteTake && (
+        <div className="delete-take-modal" role="dialog" aria-modal="true" aria-label={`Remove or delete ${pendingDeleteTake.fileName}`} onMouseDown={(event) => { if (event.target === event.currentTarget && !deletingTakeId) setPendingDeleteTakeId(null); }}>
+          <section>
+            <header><span className="delete-take-icon"><Trash2 size={21} /></span><span><small>{pendingDeleteTake.folderBacked ? "Saved recording" : "Session-only recording"}</small><strong>{pendingDeleteTake.folderBacked ? "Remove this take?" : "Delete this take?"}</strong></span><button aria-label="Cancel take deletion" disabled={Boolean(deletingTakeId)} onClick={() => setPendingDeleteTakeId(null)}><X size={18} /></button></header>
+            <div className="delete-take-body">
+              <strong title={pendingDeleteTake.fileName}>{pendingDeleteTake.fileName}</strong>
+              {pendingDeleteTake.folderBacked
+                ? <p>The MP4 is saved in your recording destination. You can remove it from Rii-Flow while keeping the file, or delete it from both places.</p>
+                : <p>This recording only exists in the current browser session. Deleting it is permanent.</p>}
+            </div>
+            <footer>
+              <button disabled={Boolean(deletingTakeId)} onClick={() => setPendingDeleteTakeId(null)}>Cancel</button>
+              {pendingDeleteTake.folderBacked && <button className="keep-file" disabled={Boolean(deletingTakeId)} onClick={() => void removeTake(pendingDeleteTake, false)}><Archive size={16} /> Remove from Rii-Flow<small>Keep MP4 in folder</small></button>}
+              <button className="delete-file" disabled={Boolean(deletingTakeId)} onClick={() => void removeTake(pendingDeleteTake, true)}>{deletingTakeId ? <LoaderCircle className="spin" size={16} /> : <Trash2 size={16} />}{pendingDeleteTake.folderBacked ? "Delete MP4 too" : "Delete take"}</button>
+            </footer>
+          </section>
+        </div>
+      )}
+
       {finishTake?.url && (
         <div className="finish-take-modal" role="dialog" aria-modal="true" aria-label={`Finish ${finishTake.fileName}`} onMouseDown={(event) => { if (event.target === event.currentTarget && !captionBusy) setFinishTakeId(null); }}>
           <section>
@@ -3886,6 +6930,7 @@ export default function App() {
                   data-caption-x={captionStyle.anchorX.toFixed(3)}
                   data-caption-y={captionStyle.anchorY.toFixed(3)}
                   data-active-caption={captionPreviewSegment?.id ?? "none"}
+                  data-active-word-animation={previewWordAnimation?.id ?? "none"}
                   data-preview-rendered={captionPreviewRendered}
                   style={{ aspectRatio: `${finishTake.width} / ${finishTake.height}` }}
                 >
@@ -3923,6 +6968,11 @@ export default function App() {
                     onPointerUp={endCaptionDrag}
                     onPointerCancel={endCaptionDrag}
                   >{captionPreviewSegment.text}</span>}
+                  {previewWordAnimation && !captionPreviewRendered && <span
+                    key={previewWordAnimation.id}
+                    className={`word-animation-sample ${previewWordAnimation.animation}`}
+                    style={{ top: `${captionStyle.anchorY < 0.44 ? 72 : 27}%`, fontFamily: captionFontFamily(captionStyle.font) }}
+                  ><strong>{previewWordAnimation.text}</strong><button type="button" aria-label={`Remove ${previewWordAnimation.text} animation`} title="Remove this animation" onClick={() => removeWordAnimation(previewWordAnimation.id)}><X size={14} /></button></span>}
                 </div>
                 {captionEnabled && captionSegments.length > 0 && <small className="caption-position-hint"><Move size={14} /> Drag the caption anywhere · snaps to horizontal and vertical centre <b>X {Math.round(captionStyle.anchorX * 100)} · Y {Math.round(captionStyle.anchorY * 100)}</b></small>}
                 <div className="caption-source-note"><Mic size={15} /><span><strong>English · selected microphone only</strong><small>Video audio, music and cue sounds are excluded.</small></span></div>
@@ -3949,7 +6999,7 @@ export default function App() {
                 {!finishTake.captionAudioAvailable && <p className="caption-unavailable"><AlertTriangle size={15} /> This take predates mic-only caption capture. New microphone-enabled takes support captions.</p>}
                 {captionEnabled && (
                   <>
-                    {!captionSegments.length && !captionBusy && <button className="generate-captions" onClick={() => void generateEnglishCaptions()}><Sparkles size={17} /> Generate English captions</button>}
+                    {!captionSegments.length && !captionBusy && <button className="generate-captions" onClick={() => void generateEnglishCaptions()}><Sparkles size={17} /> Generate captions + word animations</button>}
                     {(captionStatus === "loading" || captionStatus === "transcribing") && <div className="caption-progress"><LoaderCircle className="spin" size={20} /><span><strong>{captionStatus === "loading" ? "Loading local English model" : "Transcribing microphone"}</strong><small>{captionStatus === "loading" && captionProgress ? `${Math.round(captionProgress.percent)}%` : "Audio stays on this device"}</small></span><i><b style={{ width: `${captionStatus === "loading" ? Math.max(3, captionProgress?.percent ?? 0) : 72}%` }} /></i></div>}
                     {captionSegments.length > 0 && (
                       <>
@@ -3970,11 +7020,20 @@ export default function App() {
                     )}
                   </>
                 )}
+                {captionSegments.length > 0 && <section className="word-animation-panel" aria-label="Automatic word animations">
+                  <header><span><Sparkles size={17} /><span><strong>Word animations</strong><small>Chosen from your vocal emphasis</small></span></span><b>{wordAnimationCues.length}</b></header>
+                  {wordAnimationCues.length > 0 ? <div className="word-animation-points">
+                    {wordAnimationCues.map((cue) => <span key={cue.id} className={previewWordAnimation?.id === cue.id ? "active" : ""}>
+                      <button type="button" aria-label={`Preview ${cue.text} animation at ${cue.start.toFixed(1)} seconds`} onClick={() => seekWordAnimation(cue)}><small>{cue.start.toFixed(1)}s</small><strong>{cue.text}</strong><em>{cue.animation}</em></button>
+                      <button type="button" aria-label={`Remove ${cue.text} animation`} title="Remove animation" onClick={() => removeWordAnimation(cue.id)}><X size={14} /></button>
+                    </span>)}
+                  </div> : <button className="restore-word-animations" type="button" onClick={restoreWordAnimations}><RotateCcw size={14} /> Restore suggested animations</button>}
+                </section>}
                 {captionStatus === "rendering" && <div className="caption-progress rendering"><LoaderCircle className="spin" size={20} /><span><strong>Rendering edited MP4</strong><small>{Math.round(captionRenderProgress * 100)}% · studio controls stay protected</small></span><i><b style={{ width: `${captionRenderProgress * 100}%` }} /></i></div>}
                 {captionStatus === "done" && captionResultTake?.url && <div className="caption-ready"><Check size={18} /><span><strong>Edited take ready</strong><small>The untouched original is still available.</small></span><a href={captionResultTake.url} download={captionResultTake.fileName}><Download size={15} /> Download</a></div>}
               </div>
             </div>
-            <footer><small>{hasFinalEdits ? "Trim and captions render after recording; the original master remains unchanged." : "Download the untouched master or add a trim and editable English captions."}</small>{hasFinalEdits && captionStatus !== "done" ? <button disabled={captionBusy} onClick={() => void renderEditedVersion()}>{captionStatus === "rendering" ? <LoaderCircle className="spin" size={16} /> : takeIsTrimmed && !captionsReady ? <Scissors size={16} /> : <Captions size={16} />} Render edited MP4</button> : captionStatus === "done" && captionResultTake?.url ? <a href={captionResultTake.url} download={captionResultTake.fileName}><Download size={15} /> Download edited</a> : <a href={finishTake.url} download={finishTake.fileName}><Download size={15} /> Download original</a>}</footer>
+            <footer><small>{hasFinalEdits ? "Trim, captions and word animations render after recording; the original master remains unchanged." : "Download the untouched master or add a trim, captions and automatic word animations."}</small>{hasFinalEdits && captionStatus !== "done" ? <button disabled={captionBusy} onClick={() => void renderEditedVersion()}>{captionStatus === "rendering" ? <LoaderCircle className="spin" size={16} /> : takeIsTrimmed && !captionsReady && !wordAnimationsReady ? <Scissors size={16} /> : <Sparkles size={16} />} Render edited MP4</button> : captionStatus === "done" && captionResultTake?.url ? <a href={captionResultTake.url} download={captionResultTake.fileName}><Download size={15} /> Download edited</a> : <a href={finishTake.url} download={finishTake.fileName}><Download size={15} /> Download original</a>}</footer>
           </section>
         </div>
       )}

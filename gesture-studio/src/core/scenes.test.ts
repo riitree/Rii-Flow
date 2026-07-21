@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { StudioAsset, StudioScene } from "../types";
-import { findGestureLayer, gestureOwner, removeAssetFromScenes, resolveLayer, sceneLayerId } from "./scenes";
+import { constrainedSceneMemberIds, findGestureLayer, gestureOwner, MAX_SCENE_ASSETS, MAX_SCENE_VIDEO_ASSETS, removeAssetFromScenes, resolveLayer, sceneLayerId, sceneMemberAtPalmCenter, sceneMemberLimitError } from "./scenes";
 
 const asset = (id: string, gesture?: StudioAsset["gesture"]): StudioAsset => ({
   id,
@@ -55,5 +55,50 @@ describe("multi-asset scenes", () => {
     expect(result.scenes[0].memberIds).toEqual(["b", "c"]);
     expect(result.scenes[0].memberTransforms).toEqual({ b: { x: 0.5, y: 0.5, scale: 1 } });
     expect(result.scenes[0].memberOrder).toEqual(["c", "b"]);
+  });
+
+  it("limits scenes to five total assets", () => {
+    const assets = Array.from({ length: MAX_SCENE_ASSETS + 1 }, (_, index) => asset(`asset-${index}`));
+    expect(sceneMemberLimitError(assets.map((item) => item.id), assets)).toBe("A scene can contain up to 5 assets.");
+    expect(sceneMemberLimitError(assets.slice(0, MAX_SCENE_ASSETS).map((item) => item.id), assets)).toBeNull();
+  });
+
+  it("limits scenes to two video assets", () => {
+    const assets = Array.from({ length: MAX_SCENE_VIDEO_ASSETS + 1 }, (_, index) => ({
+      ...asset(`video-${index}`),
+      kind: "video" as const
+    }));
+    expect(sceneMemberLimitError(assets.map((item) => item.id), assets)).toBe("A scene can contain up to 2 videos.");
+  });
+
+  it("safely constrains restored scenes without deleting their assets", () => {
+    const assets = [
+      ...Array.from({ length: 3 }, (_, index) => ({ ...asset(`video-${index}`), kind: "video" as const })),
+      ...Array.from({ length: 4 }, (_, index) => asset(`image-${index}`))
+    ];
+    expect(constrainedSceneMemberIds(assets.map((item) => item.id), assets)).toEqual([
+      "video-0",
+      "video-1",
+      "image-0",
+      "image-1",
+      "image-2"
+    ]);
+  });
+
+  it("selects a scene member only when the palm centre is inside its real box", () => {
+    const rects = new Map([
+      ["left", { x: 100, y: 100, width: 200, height: 200 }],
+      ["right", { x: 400, y: 100, width: 200, height: 200 }]
+    ]);
+    expect(sceneMemberAtPalmCenter(["left", "right"], rects, [{ x: 0.2, y: 0.28 }], 1000, 600)).toBe("left");
+    expect(sceneMemberAtPalmCenter(["left", "right"], rects, [{ x: 0.305, y: 0.28 }], 1000, 600)).toBeNull();
+  });
+
+  it("chooses the topmost visible member when scene assets overlap", () => {
+    const rects = new Map([
+      ["back", { x: 100, y: 100, width: 300, height: 250 }],
+      ["front", { x: 200, y: 150, width: 300, height: 250 }]
+    ]);
+    expect(sceneMemberAtPalmCenter(["back", "front"], rects, [{ x: 0.3, y: 0.3 }], 1000, 600)).toBe("front");
   });
 });

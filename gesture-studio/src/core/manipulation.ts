@@ -28,12 +28,16 @@ const midpoint = (a: ControlPoint, b: ControlPoint) => ({ x: (a.x + b.x) / 2, y:
 const clamp = (value: number, minimum = 0, maximum = 1) => Math.min(maximum, Math.max(minimum, value));
 
 function mapComfortAxis(value: number, minimum: number, maximum: number) {
-  const linear = clamp((value - minimum) / Math.max(0.01, maximum - minimum));
+  const linear = (value - minimum) / Math.max(0.01, maximum - minimum);
+  // Keep tracking beyond the comfort workspace instead of saturating at 0/1.
+  // This leaves enough continuous travel to finish an edge placement when the
+  // palm originally locked onto an asset that was already near that edge.
+  if (linear <= 0 || linear >= 1) return linear;
   const centered = linear - 0.5;
   const eased = 0.5 + Math.sign(centered) * Math.pow(Math.abs(centered) * 2, 1.28) * 0.5;
   // Mostly linear for predictable placement, with slightly more acceleration
   // near the limits and calmer fine control around the centre.
-  return clamp(linear * 0.78 + eased * 0.22);
+  return linear * 0.78 + eased * 0.22;
 }
 
 /** Maps a comfortable central hand workspace onto the complete stage. Direct
@@ -108,6 +112,29 @@ export function mapControlPointForMirror(point: ControlPoint, mirrored: boolean)
   return mirrored ? { x: 1 - point.x, y: point.y } : point;
 }
 
+/** Maps the detected palm centre to where that palm is visibly drawn on the
+ * stage. This keeps direct-hit selection accurate when the camera has a frame. */
+export function mapControlPointToStageViewport(
+  point: ControlPoint,
+  viewport: { x: number; y: number; width: number; height: number },
+  stageWidth: number,
+  stageHeight: number,
+  sourceWidth = viewport.width,
+  sourceHeight = viewport.height
+): ControlPoint {
+  const safeSourceWidth = Math.max(1, sourceWidth);
+  const safeSourceHeight = Math.max(1, sourceHeight);
+  const coverScale = Math.max(viewport.width / safeSourceWidth, viewport.height / safeSourceHeight);
+  const visibleSourceWidth = viewport.width / coverScale;
+  const visibleSourceHeight = viewport.height / coverScale;
+  const sourceX = (safeSourceWidth - visibleSourceWidth) / 2;
+  const sourceY = (safeSourceHeight - visibleSourceHeight) / 2;
+  return {
+    x: (viewport.x + ((clamp(point.x) * safeSourceWidth - sourceX) / visibleSourceWidth) * viewport.width) / Math.max(1, stageWidth),
+    y: (viewport.y + ((clamp(point.y) * safeSourceHeight - sourceY) / visibleSourceHeight) * viewport.height) / Math.max(1, stageHeight)
+  };
+}
+
 function inside(point: ControlPoint, rect: NormalizedRect, padding: number) {
   return point.x >= rect.x - padding
     && point.x <= rect.x + rect.width + padding
@@ -129,6 +156,8 @@ export class ManipulationTracker {
   constructor(private settings: ManipulationSettings) {}
 
   configure(settings: ManipulationSettings) { this.settings = settings; }
+
+  currentMode() { return this.mode; }
 
   reset() {
     this.mode = "idle";
@@ -174,7 +203,8 @@ export class ManipulationTracker {
           transform: {
             x: this.startTransform.x + point.x - this.startPoint.x,
             y: this.startTransform.y + point.y - this.startPoint.y,
-            scale: this.startTransform.scale
+            scale: this.startTransform.scale,
+            rotation: this.startTransform.rotation
           }
         };
       }
@@ -196,7 +226,8 @@ export class ManipulationTracker {
           transform: {
             x: this.startTransform.x + currentMidpoint.x - this.startMidpoint.x,
             y: this.startTransform.y + currentMidpoint.y - this.startMidpoint.y,
-            scale: this.startTransform.scale * (distance(first.raw, second.raw) / this.startDistance)
+            scale: this.startTransform.scale * (distance(first.raw, second.raw) / this.startDistance),
+            rotation: this.startTransform.rotation
           }
         };
       }

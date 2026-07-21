@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { connectScreenAudio, cueSoundNotes, mixedAudioStream, readMicrophoneLevel, setMediaMonitoring, setVideoAudioEnabled, type StudioAudioMixer } from "./audio";
+import { AUDIO_MIX_LEVELS, connectScreenAudio, cueSoundDuration, cueSoundNotes, mixedAudioStream, readMicrophoneLevel, setMediaMonitoring, setVideoAudioEnabled, type StudioAudioMixer } from "./audio";
 
 function fakeMixer() {
   const route = {
@@ -16,6 +16,7 @@ function fakeMixer() {
       fftSize: 4,
       getByteTimeDomainData: (samples: Uint8Array) => samples.set([128, 160, 128, 96])
     },
+    cueMonitorGain: { gain: { value: 0 } },
     videoRoutes: new Map([["clip", route]]),
     monitorMedia: false
   } as unknown as StudioAudioMixer;
@@ -30,6 +31,12 @@ describe("studio audio mixing", () => {
     expect(route.monitorGain.gain.value).toBe(0);
     setMediaMonitoring(mixer, true);
     expect(route.monitorGain.gain.value).toBe(1);
+    expect(mixer.cueMonitorGain.gain.value).toBe(0);
+    mixer.microphoneSource = null;
+    setMediaMonitoring(mixer, true);
+    expect(mixer.cueMonitorGain.gain.value).toBe(AUDIO_MIX_LEVELS.cueMonitor);
+    setMediaMonitoring(mixer, false);
+    expect(mixer.cueMonitorGain.gain.value).toBe(0);
   });
 
   it("uses the stable mixed track and exposes microphone activity", () => {
@@ -44,6 +51,15 @@ describe("studio audio mixing", () => {
     expect(cueSoundNotes("chime")).toHaveLength(3);
     expect(cueSoundNotes("bottle")).toEqual([380, 980, 1500]);
     expect(cueSoundNotes("enter")).toEqual([2600]);
+    expect(cueSoundNotes("whoosh")).toEqual([]);
+    expect(cueSoundDuration("whoosh")).toBeCloseTo(0.36);
+    expect(cueSoundDuration("shutter")).toBeCloseTo(0.13);
+    expect(cueSoundDuration("film")).toBeCloseTo(0.58);
+  });
+
+  it("keeps recorded cues behind speech with master headroom", () => {
+    expect(AUDIO_MIX_LEVELS.recordingHeadroom).toBeLessThan(1);
+    expect(AUDIO_MIX_LEVELS.cueRecording).toBeLessThan(AUDIO_MIX_LEVELS.recordingHeadroom / 2);
   });
 
   it("adds shared-screen audio only to the recording mix", () => {
@@ -51,14 +67,16 @@ describe("studio audio mixing", () => {
     const disconnect = vi.fn();
     const source = { connect, disconnect };
     const destination = {} as MediaStreamAudioDestinationNode;
+    const recordingBus = {} as GainNode;
     const mixer = {
       context: { createMediaStreamSource: vi.fn(() => source) },
       destination,
+      recordingBus,
       screenSource: null
     } as unknown as StudioAudioMixer;
     const screen = { getAudioTracks: () => [{ id: "screen-audio" }] } as unknown as MediaStream;
     expect(connectScreenAudio(mixer, screen)).toBe(true);
-    expect(connect).toHaveBeenCalledWith(destination);
+    expect(connect).toHaveBeenCalledWith(recordingBus);
     expect(connectScreenAudio(mixer, null)).toBe(false);
     expect(disconnect).toHaveBeenCalledOnce();
   });

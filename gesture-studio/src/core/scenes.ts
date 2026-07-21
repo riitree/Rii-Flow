@@ -1,6 +1,61 @@
 import type { GestureId, StudioAsset, StudioLayer, StudioScene } from "../types";
 
 export const sceneLayerId = (sceneId: string) => `scene:${sceneId}`;
+export const MAX_SCENE_ASSETS = 5;
+export const MAX_SCENE_VIDEO_ASSETS = 2;
+
+/** Selects only when the visible centre of a palm is inside a member's actual
+ * media bounds. Reverse draw order makes overlapping scenes target the member
+ * the creator can see on top. */
+export function sceneMemberAtPalmCenter(
+  drawOrder: readonly string[],
+  rectById: ReadonlyMap<string, { x: number; y: number; width: number; height: number }>,
+  palmCenters: readonly { x: number; y: number }[],
+  stageWidth: number,
+  stageHeight: number
+) {
+  return [...drawOrder].reverse().find((id) => {
+    const rect = rectById.get(id);
+    if (!rect) return false;
+    return palmCenters.some((point) => {
+      const x = point.x * stageWidth;
+      const y = point.y * stageHeight;
+      return x >= rect.x && x <= rect.x + rect.width && y >= rect.y && y <= rect.y + rect.height;
+    });
+  }) ?? null;
+}
+
+export function sceneMemberLimitError(
+  memberIds: readonly string[],
+  assets: readonly StudioAsset[]
+) {
+  if (memberIds.length > MAX_SCENE_ASSETS) {
+    return `A scene can contain up to ${MAX_SCENE_ASSETS} assets.`;
+  }
+  const selected = new Set(memberIds);
+  const videoCount = assets.filter((asset) => selected.has(asset.id) && asset.kind === "video").length;
+  if (videoCount > MAX_SCENE_VIDEO_ASSETS) {
+    return `A scene can contain up to ${MAX_SCENE_VIDEO_ASSETS} videos.`;
+  }
+  return null;
+}
+
+export function constrainedSceneMemberIds(memberIds: readonly string[], assets: readonly StudioAsset[]) {
+  const assetById = new Map(assets.map((asset) => [asset.id, asset]));
+  const limited: string[] = [];
+  let videoCount = 0;
+  for (const id of memberIds) {
+    if (limited.length >= MAX_SCENE_ASSETS) break;
+    const asset = assetById.get(id);
+    if (!asset) continue;
+    if (asset.kind === "video") {
+      if (videoCount >= MAX_SCENE_VIDEO_ASSETS) continue;
+      videoCount += 1;
+    }
+    limited.push(id);
+  }
+  return limited;
+}
 
 export function resolveLayer(
   layerId: string,
@@ -68,11 +123,13 @@ export function removeAssetFromScenes(assetId: string, scenes: readonly StudioSc
     }
     const memberTransforms = Object.fromEntries(Object.entries(scene.memberTransforms ?? {}).filter(([id]) => id !== assetId));
     const memberOrder = scene.memberOrder?.filter((id) => id !== assetId);
+    const memberFocusModes = Object.fromEntries(Object.entries(scene.memberFocusModes ?? {}).filter(([id]) => id !== assetId));
     return [{
       ...scene,
       memberIds,
       memberTransforms: Object.keys(memberTransforms).length ? memberTransforms : undefined,
-      memberOrder: memberOrder?.length ? memberOrder : undefined
+      memberOrder: memberOrder?.length ? memberOrder : undefined,
+      memberFocusModes: Object.keys(memberFocusModes).length ? memberFocusModes : undefined
     }];
   });
   return { scenes: next, removedSceneIds };

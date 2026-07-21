@@ -17,7 +17,8 @@ if (wasmBackend) {
 
 interface CaptionRequest {
   id: string;
-  samples: ArrayBuffer;
+  type?: "transcribe" | "warmup" | "trigger";
+  samples?: ArrayBuffer;
 }
 
 let transcriberPromise: ReturnType<typeof pipeline<"automatic-speech-recognition">> | null = null;
@@ -34,21 +35,37 @@ function getTranscriber() {
 self.onmessage = async (event: MessageEvent<CaptionRequest>) => {
   const { id, samples } = event.data;
   try {
+    if (event.data.type === "warmup") {
+      await getTranscriber();
+      self.postMessage({ type: "ready", id });
+      return;
+    }
+    if (!samples) throw new Error("No microphone audio was supplied.");
     const pcm = new Int16Array(samples);
     const audio = new Float32Array(pcm.length);
     let peak = 0;
     for (let index = 0; index < pcm.length; index += 1) peak = Math.max(peak, Math.abs(pcm[index]));
-    if (peak < 96) throw new Error("No audible microphone speech was found in this take.");
+    if (peak < 96) {
+      self.postMessage({ type: "result", id, text: "", segments: [] });
+      return;
+    }
     const gain = Math.min(3.5, 29490 / peak);
     for (let index = 0; index < pcm.length; index += 1) audio[index] = Math.max(-1, Math.min(1, pcm[index] / 32768 * gain));
     self.postMessage({ type: "status", id, status: "transcribing" });
     const transcriber = await getTranscriber();
-    const output = await transcriber(audio, {
-      return_timestamps: true,
-      chunk_length_s: 20,
-      stride_length_s: 3
-    });
+    const triggerMode = event.data.type === "trigger";
+    const output = triggerMode
+      ? await transcriber(audio, { return_timestamps: false })
+      : await transcriber(audio, {
+        return_timestamps: true,
+        chunk_length_s: 20,
+        stride_length_s: 3
+      });
     const single = Array.isArray(output) ? output[0] : output;
+    if (triggerMode) {
+      self.postMessage({ type: "result", id, text: single.text ?? "", segments: [] });
+      return;
+    }
     const words: CaptionWord[] = (single.chunks ?? []).flatMap((chunk: { text: string; timestamp: number[] }) => {
       const timestamp = chunk.timestamp;
       const start = Array.isArray(timestamp) ? Number(timestamp[0] ?? 0) : 0;
@@ -57,7 +74,10 @@ self.onmessage = async (event: MessageEvent<CaptionRequest>) => {
     });
     const timed = groupCaptionWords(words);
     const segments = timed.length ? timed : captionSegmentsFromText(single.text ?? "", audio.length / 16000);
-    if (!segments.length) throw new Error("No clear English speech was found. Check the selected microphone and try another take.");
+    if (!segments.length) {
+      self.postMessage({ type: "result", id, text: "", segments: [] });
+      return;
+    }
     self.postMessage({ type: "result", id, text: single.text, segments });
   } catch (error) {
     transcriberPromise = null;

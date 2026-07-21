@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Landmark } from "./gesture";
-import { ManipulationTracker, mapControlPointForMirror, mapPointForMovementReach, palmControlPoint, PalmSignalTracker, type ControlPoint } from "./manipulation";
+import { ManipulationTracker, mapControlPointForMirror, mapControlPointToStageViewport, mapPointForMovementReach, palmControlPoint, PalmSignalTracker, type ControlPoint } from "./manipulation";
 
 const point = (x: number, y: number): ControlPoint => ({ x, y });
 const target = { x: 0.2, y: 0.2, width: 0.6, height: 0.6 };
@@ -27,6 +27,23 @@ describe("open-palm manipulation", () => {
     expect(mapControlPointForMirror(point(0.2, 0.6), false)).toEqual({ x: 0.2, y: 0.6 });
   });
 
+  it("maps palm centres to the visible camera area when a frame is present", () => {
+    const viewport = { x: 128, y: 72, width: 1024, height: 576 };
+    expect(mapControlPointToStageViewport(point(0, 0), viewport, 1280, 720)).toEqual(point(0.1, 0.1));
+    expect(mapControlPointToStageViewport(point(0.5, 0.5), viewport, 1280, 720)).toEqual(point(0.5, 0.5));
+    expect(mapControlPointToStageViewport(point(1, 1), viewport, 1280, 720)).toEqual(point(0.9, 0.9));
+  });
+
+  it("accounts for the camera crop used to cover the stage", () => {
+    const landscape = { x: 0, y: 0, width: 1280, height: 720 };
+    expect(mapControlPointToStageViewport(point(0.5, 0.125), landscape, 1280, 720, 1440, 1080).y).toBeCloseTo(0);
+    expect(mapControlPointToStageViewport(point(0.5, 0.875), landscape, 1280, 720, 1440, 1080).y).toBeCloseTo(1);
+
+    const portrait = { x: 0, y: 0, width: 720, height: 1280 };
+    expect(mapControlPointToStageViewport(point(0.3418, 0.5), portrait, 720, 1280, 1920, 1080).x).toBeCloseTo(0, 2);
+    expect(mapControlPointToStageViewport(point(0.6582, 0.5), portrait, 720, 1280, 1920, 1080).x).toBeCloseTo(1, 2);
+  });
+
   it("maps a comfortable central workspace across the complete stage", () => {
     const centre = mapPointForMovementReach(point(0.5, 0.5), "comfort", "landscape");
     expect(centre.x).toBeCloseTo(0.5);
@@ -36,6 +53,15 @@ describe("open-palm manipulation", () => {
     expect(mapPointForMovementReach(point(0.16, 0.18), "comfort", "portrait")).toEqual(point(0, 0));
     expect(mapPointForMovementReach(point(0.84, 0.82), "comfort", "portrait")).toEqual(point(1, 1));
     expect(mapPointForMovementReach(point(0.2, 0.7), "direct", "landscape")).toEqual(point(0.2, 0.7));
+  });
+
+  it("keeps continuous reach beyond the stage edges", () => {
+    const right = mapPointForMovementReach(point(0.94, 0.5), "comfort", "landscape");
+    const left = mapPointForMovementReach(point(0.06, 0.5), "comfort", "landscape");
+    expect(right.x).toBeGreaterThan(1.1);
+    expect(left.x).toBeLessThan(-0.1);
+    expect(right.y).toBeCloseTo(0.5);
+    expect(left.y).toBeCloseTo(0.5);
   });
 
   it("smooths jitter per hand identity and limits one-frame jumps", () => {
@@ -84,6 +110,20 @@ describe("open-palm manipulation", () => {
     expect(tracker.update([directPalm], 310, edgeTarget, { x: 0.84, y: 0.5, scale: 1 }, [comfortPalm], [directPalm]).mode).toBe("dragging");
   });
 
+  it("retains outward movement after grabbing directly behind an edge asset", () => {
+    const tracker = new ManipulationTracker({ armMs: 300, releaseGraceMs: 120, hitPadding: 0.02 });
+    const edgeTarget = { x: 0.74, y: 0.35, width: 0.2, height: 0.3 };
+    const startRaw = point(0.84, 0.5);
+    const startStage = mapPointForMovementReach(startRaw, "comfort", "landscape");
+    const edgeTransform = { x: 0.84, y: 0.5, scale: 1 };
+    tracker.update([startRaw], 0, edgeTarget, edgeTransform, [startStage], [startRaw]);
+    expect(tracker.update([startRaw], 310, edgeTarget, edgeTransform, [startStage], [startRaw]).mode).toBe("dragging");
+    const outwardRaw = point(0.9, 0.5);
+    const outwardStage = mapPointForMovementReach(outwardRaw, "comfort", "landscape");
+    const moved = tracker.update([outwardRaw], 360, edgeTarget, edgeTransform, [outwardStage], [outwardRaw]);
+    expect(moved.transform!.x).toBeGreaterThan(edgeTransform.x + 0.08);
+  });
+
   it("allows an open palm outside the asset without grabbing it", () => {
     const tracker = new ManipulationTracker({ armMs: 300, releaseGraceMs: 120, hitPadding: 0.02 });
     expect(tracker.update([point(0.05, 0.05)], 0, target, transform)).toMatchObject({
@@ -100,6 +140,16 @@ describe("open-palm manipulation", () => {
     const result = tracker.update([point(0.2, 0.5), point(0.8, 0.5)], 360, target, transform);
     expect(result.transform?.scale).toBeCloseTo(2);
     expect(result.transform?.x).toBeCloseTo(0.5);
+  });
+
+  it("keeps rotation fixed while two hands scale the visual", () => {
+    const tracker = new ManipulationTracker({ armMs: 300, releaseGraceMs: 120, hitPadding: 0.02 });
+    const start = [point(0.35, 0.5), point(0.65, 0.5)];
+    tracker.update(start, 0, target, transform);
+    expect(tracker.update(start, 310, target, transform).mode).toBe("scaling");
+    const result = tracker.update([point(0.5, 0.35), point(0.5, 0.65)], 360, target, transform);
+    expect(result.transform?.rotation).toBeUndefined();
+    expect(result.transform?.scale).toBeCloseTo(1);
   });
 
   it("preserves the previous two-palm resize sensitivity in comfort mode", () => {

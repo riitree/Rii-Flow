@@ -11,12 +11,15 @@ export interface CaptionCaptureSession {
 
 const loadedContexts = new WeakSet<AudioContext>();
 
+export async function ensureCaptionCaptureWorklet(context: AudioContext) {
+  if (loadedContexts.has(context)) return;
+  await context.audioWorklet.addModule("/audio/caption-capture.worklet.js");
+  loadedContexts.add(context);
+}
+
 export async function startCaptionCapture(mixer: StudioAudioMixer | null): Promise<CaptionCaptureSession | null> {
   if (!mixer?.microphoneSource) return null;
-  if (!loadedContexts.has(mixer.context)) {
-    await mixer.context.audioWorklet.addModule("/audio/caption-capture.worklet.js");
-    loadedContexts.add(mixer.context);
-  }
+  await ensureCaptionCaptureWorklet(mixer.context);
   const node = new AudioWorkletNode(mixer.context, "rii-flow-caption-capture");
   const silent = mixer.context.createGain();
   silent.gain.value = 0;

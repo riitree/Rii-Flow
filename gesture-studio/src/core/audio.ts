@@ -1,13 +1,20 @@
+import type { CueSound } from "../types";
+
 interface VideoAudioRoute {
   source: MediaElementAudioSourceNode;
   recordingGain: GainNode;
   monitorGain: GainNode;
   enabled: boolean;
+  monitorAlways: boolean;
 }
 
 export interface StudioAudioMixer {
   context: AudioContext;
   destination: MediaStreamAudioDestinationNode;
+  recordingBus: GainNode;
+  recordingLimiter: DynamicsCompressorNode;
+  cueRecordingGain: GainNode;
+  cueMonitorGain: GainNode;
   microphoneAnalyser: AnalyserNode;
   microphoneSource: MediaStreamAudioSourceNode | null;
   screenSource: MediaStreamAudioSourceNode | null;
@@ -19,26 +26,61 @@ type AudioContextHost = typeof globalThis & {
   webkitAudioContext?: typeof AudioContext;
 };
 
+export const AUDIO_MIX_LEVELS = {
+  recordingHeadroom: 0.9,
+  cueRecording: 0.38,
+  cueMonitor: 0.5
+} as const;
+
 export async function createStudioAudioMixer(): Promise<StudioAudioMixer | null> {
   const host = globalThis as AudioContextHost;
   const Context = host.AudioContext ?? host.webkitAudioContext;
   if (!Context) return null;
   const context = new Context();
   const destination = context.createMediaStreamDestination();
+  const recordingBus = context.createGain();
+  const recordingLimiter = context.createDynamicsCompressor();
+  const cueRecordingGain = context.createGain();
+  const cueMonitorGain = context.createGain();
   const microphoneAnalyser = context.createAnalyser();
   microphoneAnalyser.fftSize = 256;
   microphoneAnalyser.smoothingTimeConstant = 0.72;
-  microphoneAnalyser.connect(destination);
+  recordingBus.gain.value = AUDIO_MIX_LEVELS.recordingHeadroom;
+  recordingLimiter.threshold.value = -2;
+  recordingLimiter.knee.value = 0;
+  recordingLimiter.ratio.value = 20;
+  recordingLimiter.attack.value = 0.001;
+  recordingLimiter.release.value = 0.09;
+  cueRecordingGain.gain.value = AUDIO_MIX_LEVELS.cueRecording;
+  cueMonitorGain.gain.value = 0;
+  microphoneAnalyser.connect(recordingBus);
+  cueRecordingGain.connect(recordingBus);
+  cueMonitorGain.connect(context.destination);
+  recordingBus.connect(recordingLimiter);
+  recordingLimiter.connect(destination);
   if (context.state === "suspended") void context.resume().catch(() => undefined);
   return {
     context,
     destination,
+    recordingBus,
+    recordingLimiter,
+    cueRecordingGain,
+    cueMonitorGain,
     microphoneAnalyser,
     microphoneSource: null,
     screenSource: null,
     videoRoutes: new Map(),
     monitorMedia: false
   };
+}
+
+function applyCueMonitoring(mixer: StudioAudioMixer) {
+  // Generated effects playing through speakers can be recaptured by the mic and
+  // provoke aggressive browser echo cancellation. Keep them in the recording
+  // mix, but only monitor them locally when no microphone is connected.
+  mixer.cueMonitorGain.gain.value = mixer.monitorMedia && !mixer.microphoneSource
+    ? AUDIO_MIX_LEVELS.cueMonitor
+    : 0;
 }
 
 export function connectMicrophone(mixer: StudioAudioMixer | null, stream: MediaStream | null) {
@@ -48,6 +90,7 @@ export function connectMicrophone(mixer: StudioAudioMixer | null, stream: MediaS
     ? mixer.context.createMediaStreamSource(stream)
     : null;
   mixer.microphoneSource?.connect(mixer.microphoneAnalyser);
+  applyCueMonitoring(mixer);
 }
 
 /** Shared-screen audio is recorded into the master mix but is not routed back
@@ -58,29 +101,30 @@ export function connectScreenAudio(mixer: StudioAudioMixer | null, stream: Media
   mixer.screenSource = stream?.getAudioTracks().length
     ? mixer.context.createMediaStreamSource(stream)
     : null;
-  mixer.screenSource?.connect(mixer.destination);
+  mixer.screenSource?.connect(mixer.recordingBus);
   return Boolean(mixer.screenSource);
 }
 
 function applyVideoRoute(mixer: StudioAudioMixer, route: VideoAudioRoute) {
   route.recordingGain.gain.value = route.enabled ? 1 : 0;
-  route.monitorGain.gain.value = route.enabled && mixer.monitorMedia ? 1 : 0;
+  route.monitorGain.gain.value = route.enabled && (route.monitorAlways || mixer.monitorMedia) ? 1 : 0;
 }
 
-export function connectVideoAudio(mixer: StudioAudioMixer | null, id: string, video: HTMLVideoElement, enabled: boolean) {
+export function connectVideoAudio(mixer: StudioAudioMixer | null, id: string, video: HTMLMediaElement, enabled: boolean, monitorAlways = false) {
   if (!mixer) return;
   const existing = mixer.videoRoutes.get(id);
   if (existing) {
     existing.enabled = enabled;
+    existing.monitorAlways = monitorAlways;
     applyVideoRoute(mixer, existing);
     return;
   }
   const source = mixer.context.createMediaElementSource(video);
   const recordingGain = mixer.context.createGain();
   const monitorGain = mixer.context.createGain();
-  const route = { source, recordingGain, monitorGain, enabled };
+  const route = { source, recordingGain, monitorGain, enabled, monitorAlways };
   source.connect(recordingGain);
-  recordingGain.connect(mixer.destination);
+  recordingGain.connect(mixer.recordingBus);
   source.connect(monitorGain);
   monitorGain.connect(mixer.context.destination);
   applyVideoRoute(mixer, route);
@@ -98,6 +142,7 @@ export function setVideoAudioEnabled(mixer: StudioAudioMixer | null, id: string,
 export function setMediaMonitoring(mixer: StudioAudioMixer | null, enabled: boolean) {
   if (!mixer) return;
   mixer.monitorMedia = enabled;
+  applyCueMonitoring(mixer);
   mixer.videoRoutes.forEach((route) => applyVideoRoute(mixer, route));
 }
 
@@ -134,9 +179,19 @@ export function cueSoundNotes(sound: CueSound): number[] {
   return [];
 }
 
+export function cueSoundDuration(sound: CueSound) {
+  if (sound === "whoosh") return 0.36;
+  if (sound === "shutter") return 0.13;
+  if (sound === "film") return 0.58;
+  if (sound === "soft") return 0.18;
+  if (sound === "chime") return 0.39;
+  if (sound === "none") return 0;
+  return 0.16;
+}
+
 function connectCueGain(mixer: StudioAudioMixer, gain: GainNode) {
-  gain.connect(mixer.destination);
-  gain.connect(mixer.context.destination);
+  gain.connect(mixer.cueRecordingGain);
+  gain.connect(mixer.cueMonitorGain);
 }
 
 function generatedNoise(context: AudioContext, seconds: number) {
@@ -147,6 +202,122 @@ function generatedNoise(context: AudioContext, seconds: number) {
   const source = context.createBufferSource();
   source.buffer = buffer;
   return source;
+}
+
+function playWhoosh(mixer: StudioAudioMixer, volume: number, now: number) {
+  const air = generatedNoise(mixer.context, 0.36);
+  const sweep = mixer.context.createBiquadFilter();
+  const airGain = mixer.context.createGain();
+  sweep.type = "bandpass";
+  sweep.Q.value = 0.72;
+  sweep.frequency.setValueAtTime(180, now);
+  sweep.frequency.exponentialRampToValueAtTime(4200, now + 0.22);
+  sweep.frequency.exponentialRampToValueAtTime(1200, now + 0.35);
+  airGain.gain.setValueAtTime(0.0001, now);
+  airGain.gain.exponentialRampToValueAtTime(volume * 0.18, now + 0.09);
+  airGain.gain.exponentialRampToValueAtTime(volume * 0.11, now + 0.22);
+  airGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.36);
+  air.connect(sweep);
+  sweep.connect(airGain);
+  connectCueGain(mixer, airGain);
+
+  const body = mixer.context.createOscillator();
+  const bodyGain = mixer.context.createGain();
+  body.type = "triangle";
+  body.frequency.setValueAtTime(140, now);
+  body.frequency.exponentialRampToValueAtTime(72, now + 0.28);
+  bodyGain.gain.setValueAtTime(0.0001, now);
+  bodyGain.gain.exponentialRampToValueAtTime(volume * 0.045, now + 0.06);
+  bodyGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.3);
+  body.connect(bodyGain);
+  connectCueGain(mixer, bodyGain);
+
+  air.start(now);
+  air.stop(now + 0.37);
+  body.start(now);
+  body.stop(now + 0.31);
+  air.addEventListener("ended", () => { air.disconnect(); sweep.disconnect(); airGain.disconnect(); }, { once: true });
+  body.addEventListener("ended", () => { body.disconnect(); bodyGain.disconnect(); }, { once: true });
+}
+
+function scheduleMechanicalHit(mixer: StudioAudioMixer, volume: number, at: number, clickFrequency: number, bodyFrequency: number) {
+  const click = generatedNoise(mixer.context, 0.032);
+  const clickFilter = mixer.context.createBiquadFilter();
+  const clickGain = mixer.context.createGain();
+  clickFilter.type = "bandpass";
+  clickFilter.frequency.value = clickFrequency;
+  clickFilter.Q.value = 1.35;
+  clickGain.gain.setValueAtTime(volume * 0.2, at);
+  clickGain.gain.exponentialRampToValueAtTime(0.0001, at + 0.032);
+  click.connect(clickFilter);
+  clickFilter.connect(clickGain);
+  connectCueGain(mixer, clickGain);
+
+  const body = mixer.context.createOscillator();
+  const bodyGain = mixer.context.createGain();
+  body.type = "triangle";
+  body.frequency.setValueAtTime(bodyFrequency, at);
+  body.frequency.exponentialRampToValueAtTime(Math.max(48, bodyFrequency * 0.58), at + 0.04);
+  bodyGain.gain.setValueAtTime(volume * 0.085, at);
+  bodyGain.gain.exponentialRampToValueAtTime(0.0001, at + 0.045);
+  body.connect(bodyGain);
+  connectCueGain(mixer, bodyGain);
+
+  click.start(at);
+  click.stop(at + 0.034);
+  body.start(at);
+  body.stop(at + 0.047);
+  click.addEventListener("ended", () => { click.disconnect(); clickFilter.disconnect(); clickGain.disconnect(); }, { once: true });
+  body.addEventListener("ended", () => { body.disconnect(); bodyGain.disconnect(); }, { once: true });
+}
+
+function playCameraShutter(mixer: StudioAudioMixer, volume: number, now: number) {
+  scheduleMechanicalHit(mixer, volume, now, 1150, 145);
+  scheduleMechanicalHit(mixer, volume * 0.72, now + 0.064, 1750, 185);
+}
+
+function playFilmRoll(mixer: StudioAudioMixer, volume: number, now: number) {
+  const motor = mixer.context.createOscillator();
+  const motorFilter = mixer.context.createBiquadFilter();
+  const motorGain = mixer.context.createGain();
+  motor.type = "sawtooth";
+  motor.frequency.setValueAtTime(74, now);
+  motor.frequency.linearRampToValueAtTime(96, now + 0.16);
+  motor.frequency.linearRampToValueAtTime(88, now + 0.52);
+  motorFilter.type = "lowpass";
+  motorFilter.frequency.value = 430;
+  motorGain.gain.setValueAtTime(0.0001, now);
+  motorGain.gain.exponentialRampToValueAtTime(volume * 0.035, now + 0.045);
+  motorGain.gain.setValueAtTime(volume * 0.035, now + 0.46);
+  motorGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.58);
+  motor.connect(motorFilter);
+  motorFilter.connect(motorGain);
+  connectCueGain(mixer, motorGain);
+
+  const flutter = generatedNoise(mixer.context, 0.58);
+  const flutterFilter = mixer.context.createBiquadFilter();
+  const flutterGain = mixer.context.createGain();
+  flutterFilter.type = "bandpass";
+  flutterFilter.frequency.value = 760;
+  flutterFilter.Q.value = 0.75;
+  flutterGain.gain.setValueAtTime(0.0001, now);
+  flutterGain.gain.exponentialRampToValueAtTime(volume * 0.045, now + 0.055);
+  flutterGain.gain.setValueAtTime(volume * 0.04, now + 0.47);
+  flutterGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.58);
+  flutter.connect(flutterFilter);
+  flutterFilter.connect(flutterGain);
+  connectCueGain(mixer, flutterGain);
+
+  for (let index = 0; index < 7; index += 1) {
+    scheduleMechanicalHit(mixer, volume * (index % 2 === 0 ? 0.24 : 0.18), now + 0.055 + index * 0.068, 2100, 210);
+  }
+
+  motor.start(now);
+  motor.stop(now + 0.59);
+  flutter.start(now);
+  flutter.stop(now + 0.59);
+  motor.addEventListener("ended", () => { motor.disconnect(); motorFilter.disconnect(); motorGain.disconnect(); }, { once: true });
+  flutter.addEventListener("ended", () => { flutter.disconnect(); flutterFilter.disconnect(); flutterGain.disconnect(); }, { once: true });
 }
 
 function playPopOut(mixer: StudioAudioMixer, volume: number, now: number) {
@@ -230,6 +401,18 @@ export function playCueSound(mixer: StudioAudioMixer | null, sound: CueSound | u
   if (!mixer || !sound || sound === "none") return;
   const now = mixer.context.currentTime;
   const safeVolume = Math.max(0.001, Math.min(1, volume));
+  if (sound === "whoosh") {
+    playWhoosh(mixer, safeVolume, now);
+    return;
+  }
+  if (sound === "shutter") {
+    playCameraShutter(mixer, safeVolume, now);
+    return;
+  }
+  if (sound === "film") {
+    playFilmRoll(mixer, safeVolume, now);
+    return;
+  }
   if (sound === "bottle") {
     playPopOut(mixer, safeVolume, now);
     return;
@@ -250,8 +433,7 @@ export function playCueSound(mixer: StudioAudioMixer | null, sound: CueSound | u
     gain.gain.exponentialRampToValueAtTime(safeVolume * 0.16, startsAt + 0.012);
     gain.gain.exponentialRampToValueAtTime(0.0001, startsAt + duration);
     oscillator.connect(gain);
-    gain.connect(mixer.destination);
-    gain.connect(mixer.context.destination);
+    connectCueGain(mixer, gain);
     oscillator.start(startsAt);
     oscillator.stop(startsAt + duration + 0.01);
     oscillator.addEventListener("ended", () => {
@@ -270,7 +452,11 @@ export async function closeStudioAudioMixer(mixer: StudioAudioMixer | null) {
     route.recordingGain.disconnect();
     route.monitorGain.disconnect();
   });
+  mixer.microphoneAnalyser.disconnect();
+  mixer.cueRecordingGain.disconnect();
+  mixer.cueMonitorGain.disconnect();
+  mixer.recordingBus.disconnect();
+  mixer.recordingLimiter.disconnect();
   mixer.destination.stream.getTracks().forEach((track) => track.stop());
   if (mixer.context.state !== "closed") await mixer.context.close();
 }
-import type { CueSound } from "../types";

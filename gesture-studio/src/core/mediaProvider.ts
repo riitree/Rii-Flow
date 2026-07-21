@@ -94,30 +94,49 @@ function makeSyntheticFrame(label: string, preset: QualityPreset, accent: string
   canvas.width = preset.width;
   canvas.height = preset.height;
   const context = canvas.getContext("2d", { alpha: false });
+  const background = document.createElement("canvas");
+  background.width = preset.width;
+  background.height = preset.height;
+  const backgroundContext = background.getContext("2d", { alpha: false });
+  const block = Math.max(80, Math.round(canvas.width / 10));
+  if (backgroundContext) {
+    backgroundContext.fillStyle = "#182026";
+    backgroundContext.fillRect(0, 0, background.width, background.height);
+    backgroundContext.fillStyle = "#23323a";
+    for (let x = 0; x < background.width; x += block) {
+      for (let y = 0; y < background.height; y += block) {
+        if ((Math.floor(x / block) + Math.floor(y / block)) % 2 === 0) backgroundContext.fillRect(x, y, block, block);
+      }
+    }
+    backgroundContext.fillStyle = "#eef4f6";
+    backgroundContext.font = `700 ${Math.max(24, background.height / 18)}px sans-serif`;
+    backgroundContext.fillText(label, background.width * 0.04, background.height * 0.91);
+  }
   let frame = 0;
+  let previousSweep = -1;
+  const sweepWidth = Math.max(5, canvas.width / 300);
+  if (context) context.drawImage(background, 0, 0);
   const paint = () => {
     if (!context) return;
-    const block = Math.max(80, Math.round(canvas.width / 10));
-    context.fillStyle = "#182026";
-    context.fillRect(0, 0, canvas.width, canvas.height);
-    context.fillStyle = "#23323a";
-    for (let x = 0; x < canvas.width; x += block) {
-      for (let y = 0; y < canvas.height; y += block) {
-        if ((Math.floor(x / block) + Math.floor(y / block)) % 2 === 0) context.fillRect(x, y, block, block);
-      }
+    if (previousSweep >= 0) {
+      const restoreWidth = Math.min(sweepWidth + 2, canvas.width - previousSweep);
+      context.drawImage(background, previousSweep, 0, restoreWidth, canvas.height, previousSweep, 0, restoreWidth, canvas.height);
     }
     const sweep = (frame * Math.max(6, canvas.width / 160)) % canvas.width;
     context.fillStyle = accent;
-    context.fillRect(sweep, 0, Math.max(5, canvas.width / 300), canvas.height);
-    context.fillStyle = "#eef4f6";
-    context.font = `700 ${Math.max(24, canvas.height / 18)}px sans-serif`;
-    context.fillText(label, canvas.width * 0.04, canvas.height * 0.91);
+    context.fillRect(sweep, 0, sweepWidth, canvas.height);
+    previousSweep = sweep;
     frame += 1;
   };
   paint();
-  const timer = window.setInterval(paint, 100);
-  return { canvas, timer };
+  return { canvas, paint };
 }
+
+interface GeneratedVideoTrack extends MediaStreamTrack {
+  writable: WritableStream<VideoFrame>;
+}
+
+type VideoTrackGeneratorConstructor = new (options: { kind: "video" }) => GeneratedVideoTrack;
 
 interface GeneratedAudioTrack extends MediaStreamTrack {
   writable: WritableStream<AudioData>;
@@ -166,7 +185,49 @@ function makeGeneratedAudioStream(frequency: number) {
   return new MediaStream([track]);
 }
 
-export function createSyntheticMediaProvider(): MediaProvider {
+export interface SyntheticMediaProviderOptions {
+  speechFixtureUrl?: string;
+  speechFixtureDelayMs?: number;
+  speechFixtures?: Array<{ url: string; delayMs: number }>;
+}
+
+async function makeSpeechFixtureStream(fixtures: readonly { url: string; delayMs: number }[]) {
+  const context = new AudioContext();
+  const buffers = await Promise.all(fixtures.map(async ({ url }) => {
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`Speech fixture failed to load (${response.status}).`);
+    return context.decodeAudioData(await response.arrayBuffer());
+  }));
+  const gain = context.createGain();
+  const destination = context.createMediaStreamDestination();
+  gain.gain.value = 0.92;
+  gain.connect(destination);
+  if (context.state === "suspended") await context.resume();
+  const sources = buffers.map((buffer, index) => {
+    const source = context.createBufferSource();
+    source.buffer = buffer;
+    source.connect(gain);
+    source.start(context.currentTime + Math.max(0, fixtures[index]?.delayMs ?? 0) / 1000);
+    return source;
+  });
+  const stream = destination.stream;
+  const track = stream.getAudioTracks()[0];
+  const originalStop = track?.stop.bind(track);
+  let stopped = false;
+  if (track) Object.defineProperty(track, "stop", {
+    configurable: true,
+    value: () => {
+      if (stopped) return;
+      stopped = true;
+      sources.forEach((source) => { try { source.stop(); } catch {} });
+      void context.close();
+      originalStop?.();
+    }
+  });
+  return stream;
+}
+
+export function createSyntheticMediaProvider(options: SyntheticMediaProviderOptions = {}): MediaProvider {
   const diagnostics = { starts: 0, stoppedTracks: 0 };
   const cameras: CameraOption[] = [
     { deviceId: "diagnostic-camera-a", label: "Studio Camera A" },
@@ -188,7 +249,36 @@ export function createSyntheticMediaProvider(): MediaProvider {
       const selected = cameras.find((camera) => camera.deviceId === deviceId) ?? cameras[0];
       const accent = selected.deviceId.endsWith("b") ? "#f3b562" : "#64d8b5";
       const source = makeSyntheticFrame(selected.label, preset, accent);
-      const stream = source.canvas.captureStream(preset.fps);
+      const Generator = (globalThis as typeof globalThis & { MediaStreamTrackGenerator?: VideoTrackGeneratorConstructor }).MediaStreamTrackGenerator;
+      let timer = 0;
+      let generatedWriter: WritableStreamDefaultWriter<VideoFrame> | null = null;
+      let stream: MediaStream;
+      if (Generator && typeof VideoFrame !== "undefined") {
+        const generatedTrack = new Generator({ kind: "video" });
+        generatedWriter = generatedTrack.writable.getWriter();
+        let timestamp = 0;
+        let pendingWrites = 0;
+        const emitFrame = () => {
+          source.paint();
+          if (pendingWrites >= 2 || !generatedWriter) return;
+          pendingWrites += 1;
+          const frame = new VideoFrame(source.canvas, { timestamp });
+          timestamp += Math.round(1_000_000 / Math.max(1, preset.fps));
+          void generatedWriter.write(frame)
+            .catch(() => undefined)
+            .finally(() => {
+              frame.close();
+              pendingWrites -= 1;
+            });
+        };
+        emitFrame();
+        timer = window.setInterval(emitFrame, 1000 / Math.max(1, preset.fps));
+        stream = new MediaStream([generatedTrack]);
+      } else {
+        source.paint();
+        timer = window.setInterval(source.paint, 1000 / Math.max(1, preset.fps));
+        stream = source.canvas.captureStream(preset.fps);
+      }
       const track = stream.getVideoTracks()[0];
       diagnostics.starts += 1;
       const originalStop = track.stop.bind(track);
@@ -199,7 +289,9 @@ export function createSyntheticMediaProvider(): MediaProvider {
           if (!stopped) {
             stopped = true;
             diagnostics.stoppedTracks += 1;
-            window.clearInterval(source.timer);
+            window.clearInterval(timer);
+            void generatedWriter?.close().catch(() => undefined);
+            generatedWriter = null;
           }
           originalStop();
         }
@@ -217,6 +309,12 @@ export function createSyntheticMediaProvider(): MediaProvider {
     },
     async openMicrophone(deviceId) {
       const selected = microphones.find((microphone) => microphone.deviceId === deviceId) ?? microphones[0];
+      const speechFixtures = options.speechFixtures
+        ?? (options.speechFixtureUrl ? [{ url: options.speechFixtureUrl, delayMs: options.speechFixtureDelayMs ?? 6_000 }] : []);
+      if (speechFixtures.length) {
+        const stream = await makeSpeechFixtureStream(speechFixtures);
+        return { stream, label: selected.label };
+      }
       const generated = makeGeneratedAudioStream(selected.deviceId.endsWith("b") ? 330 : 220);
       if (generated) return { stream: generated, label: selected.label };
       const context = new AudioContext();

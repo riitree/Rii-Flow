@@ -14,6 +14,7 @@ const MODEL_MAP: Record<string, RecognizedGesture> = {
   Victory: "two",
   Open_Palm: "palm",
   Thumb_Up: "thumb",
+  Thumb_Down: "thumb-down",
   ILoveYou: "love",
   Closed_Fist: "fist"
 };
@@ -24,6 +25,7 @@ const MODEL_THRESHOLDS: Partial<Record<Exclude<RecognizedGesture, null>, number>
   one: 0.6,
   two: 0.6,
   thumb: 0.62,
+  "thumb-down": 0.62,
   love: 0.62
 };
 
@@ -106,6 +108,11 @@ export function resolveGesture(categoryName: string | undefined, confidence: num
   const foldedScores = hand.fingers.filter((_, index) => !extended[index]);
   const separation = foldedScores.length ? 1 - Math.max(...foldedScores) : 1;
   const landmarkConfidence = clamp01((Math.min(...extendedScores, 1) * 0.72 + separation * 0.28) * quality);
+  // MediaPipe can keep returning a useful 21-point skeleton while the wrist
+  // and part of the palm are clipped by the camera edge. In that case the
+  // index chain is still enough to drive the literal fingertip pointer.
+  if (count === 1 && extended[0] && landmarkConfidence >= 0.48) return { gesture: "one", source: "landmarks", confidence: landmarkConfidence, quality };
+  if (count === 2 && extended[0] && extended[1] && landmarkConfidence >= 0.52) return { gesture: "two", source: "landmarks", confidence: landmarkConfidence, quality };
   if (count === 3 && landmarkConfidence >= 0.56) return { gesture: "three", source: "landmarks", confidence: landmarkConfidence, quality };
   if (count === 4 && hand.thumb < 0.52 && landmarkConfidence >= 0.6) return { gesture: "four", source: "landmarks", confidence: landmarkConfidence, quality };
   return { gesture: null, source: "none", confidence: 0, quality };
@@ -172,15 +179,17 @@ const DEFAULT_STABILIZER: GestureStabilizerSettings = {
   fistMaximumGapMs: 140
 };
 
-type StabilizedIntent = GestureId | "palm";
+type StabilizedIntent = GestureId | "pinch" | "palm";
 
 const ENTER_SCORE: Record<StabilizedIntent, number> = {
   one: 0.62,
   two: 0.62,
   three: 0.7,
   four: 0.72,
+  pinch: 0.64,
   palm: 0.64,
   thumb: 0.66,
+  "thumb-down": 0.66,
   love: 0.66,
   "double-two": 0.72,
   "double-thumb": 0.72,
@@ -257,7 +266,11 @@ export class GestureStabilizer {
       const requiredSamples = continuing ? Math.max(2, this.settings.minimumSamples - 1) : this.settings.minimumSamples;
       const requiredRatio = continuing ? this.settings.exitRatio : this.settings.enterRatio;
       const requiredScore = continuing ? ENTER_SCORE[best.gesture] - 0.14 : ENTER_SCORE[best.gesture];
-      if (best.samples >= requiredSamples && best.ratio >= requiredRatio && best.confidence >= requiredScore) this.stable = best.gesture;
+      const recent = this.history.slice(-2);
+      const fastHighConfidenceEntry = !continuing
+        && recent.length === 2
+        && recent.every((item) => item.gesture === best.gesture && item.score >= requiredScore + 0.08);
+      if (fastHighConfidenceEntry || (best.samples >= requiredSamples && best.ratio >= requiredRatio && best.confidence >= requiredScore)) this.stable = best.gesture;
       else if (!continuing && this.stable && best.ratio > 1 - this.settings.exitRatio) this.stable = null;
     }
 
@@ -272,10 +285,10 @@ export class GestureStabilizer {
   }
 }
 
-export interface HoldSettings { holdMs: number; cooldownMs: number; rearmMs: number }
-export interface HoldEvent { trigger?: GestureId; hide: boolean; progress: number; armed: boolean }
-export const MIN_GESTURE_HOLD_MS = 150;
-type GateGesture = GestureId | "palm";
+export interface HoldSettings { holdMs: number; cooldownMs: number }
+export interface HoldEvent { trigger?: GestureId | "pinch"; hide: boolean; progress: number; armed: boolean }
+export const MIN_GESTURE_HOLD_MS = 75;
+type GateGesture = GestureId | "pinch" | "palm";
 
 function normalizeHoldSettings(settings: HoldSettings): HoldSettings {
   return {
@@ -287,13 +300,11 @@ function normalizeHoldSettings(settings: HoldSettings): HoldSettings {
 }
 
 export class GestureGate {
-  private candidate: GestureId | null = null;
+  private candidate: GateGesture | null = null;
   private since = 0;
   private lastTrigger = Number.NEGATIVE_INFINITY;
-  private lastTriggeredGesture: GestureId | null = null;
-  private neutralSince: number | null = null;
-  private releaseCandidate: GateGesture | null = null;
-  private releaseSince = 0;
+  private lastTriggeredGesture: GateGesture | null = null;
+  private releaseObserved = false;
   private fistLatched = false;
   private armed = true;
   private settings: HoldSettings;
@@ -307,21 +318,18 @@ export class GestureGate {
     this.candidate = null;
     this.lastTrigger = Number.NEGATIVE_INFINITY;
     this.lastTriggeredGesture = null;
-    this.neutralSince = null;
-    this.releaseCandidate = null;
-    this.releaseSince = 0;
+    this.releaseObserved = false;
     this.fistLatched = false;
     this.armed = true;
   }
 
   /**
    * Temporarily ignores recognition without pretending the hand was released.
-   * This keeps post-activation and manipulation guards from re-arming a held pose.
+   * This keeps post-activation and manipulation guards from treating an ignored
+   * frame as a deliberate pose change.
    */
   suppress(): HoldEvent {
     this.candidate = null;
-    this.neutralSince = null;
-    this.releaseCandidate = null;
     return { hide: false, progress: 0, armed: this.armed };
   }
 
@@ -330,8 +338,7 @@ export class GestureGate {
     this.candidate = null;
     this.lastTrigger = now;
     this.lastTriggeredGesture = null;
-    this.neutralSince = null;
-    this.releaseCandidate = null;
+    this.releaseObserved = false;
     this.fistLatched = false;
     this.armed = false;
   }
@@ -341,38 +348,31 @@ export class GestureGate {
       const hide = !this.fistLatched;
       this.fistLatched = true;
       this.candidate = null;
-      this.neutralSince = null;
-      this.releaseCandidate = null;
+      this.releaseObserved = true;
       this.armed = false;
       return { hide, progress: 0, armed: false };
     }
     this.fistLatched = false;
     if (gesture === null) {
       this.candidate = null;
-      this.releaseCandidate = null;
-      if (this.neutralSince === null) this.neutralSince = now;
-      if (!this.armed && now - this.lastTrigger >= this.settings.cooldownMs && now - this.neutralSince >= this.settings.rearmMs) {
+      this.releaseObserved = true;
+      if (!this.armed && now - this.lastTrigger >= this.settings.cooldownMs) {
         this.armed = true;
         this.lastTriggeredGesture = null;
       }
       return { hide: false, progress: 0, armed: this.armed };
     }
-    this.neutralSince = null;
     if (!this.armed) {
       this.candidate = null;
-      if (gesture === this.lastTriggeredGesture) {
-        this.releaseCandidate = null;
+      const changedPose = gesture !== this.lastTriggeredGesture;
+      if (changedPose) this.releaseObserved = true;
+      if (!changedPose && !this.releaseObserved) {
         return { hide: false, progress: 0, armed: false };
       }
-      if (this.releaseCandidate !== gesture) {
-        this.releaseCandidate = gesture;
-        this.releaseSince = now;
-        return { hide: false, progress: 0, armed: false };
-      }
-      if (now - this.lastTrigger >= this.settings.cooldownMs && now - this.releaseSince >= this.settings.rearmMs) {
+      if (now - this.lastTrigger >= this.settings.cooldownMs) {
         this.armed = true;
         this.lastTriggeredGesture = null;
-        this.releaseCandidate = null;
+        this.releaseObserved = false;
         if (canTrigger && gesture !== "palm") {
           this.candidate = gesture;
           this.since = now;
@@ -380,7 +380,7 @@ export class GestureGate {
       }
       return { hide: false, progress: 0, armed: this.armed };
     }
-    this.releaseCandidate = null;
+    this.releaseObserved = false;
     if (!canTrigger || gesture === "palm") {
       this.candidate = null;
       return { hide: false, progress: 0, armed: true };
@@ -396,7 +396,7 @@ export class GestureGate {
       this.lastTrigger = now;
       this.lastTriggeredGesture = gesture;
       this.candidate = null;
-      this.releaseCandidate = null;
+      this.releaseObserved = false;
       this.armed = false;
       return { trigger: gesture, hide: false, progress: 1, armed: false };
     }

@@ -40,6 +40,11 @@ describe("gesture recognition rules", () => {
     expect(resolveGesture("None", 0.8, landmarks([0, 1, 2, 3])).gesture).toBe("four");
   });
 
+  it("keeps index-tip pointing and two-finger scrolling available from landmarks", () => {
+    expect(resolveGesture("None", 0.2, landmarks([0])).gesture).toBe("one");
+    expect(resolveGesture("None", 0.2, landmarks([0, 1])).gesture).toBe("two");
+  });
+
   it("keeps a confident MediaPipe Open_Palm result from being overridden by finger inference", () => {
     expect(resolveGesture("Open_Palm", 0.9, landmarks([0, 1, 2, 3])).gesture).toBe("palm");
     expect(GESTURES.some((gesture) => gesture.id === ("palm" as never))).toBe(false);
@@ -54,8 +59,8 @@ describe("gesture recognition rules", () => {
     expect(resolveCompositeGesture([victory])).toBeNull();
   });
 
-  it("holds briefly, requires re-arm, and lets fist hide while unarmed", () => {
-    const gate = new GestureGate({ holdMs: 400, cooldownMs: 800, rearmMs: 200 });
+  it("holds briefly, latches the same pose, and lets fist hide while unarmed", () => {
+    const gate = new GestureGate({ holdMs: 400, cooldownMs: 800 });
     gate.update("one", 0);
     expect(gate.update("one", 410).trigger).toBe("one");
     expect(gate.update("one", 500).trigger).toBeUndefined();
@@ -63,7 +68,7 @@ describe("gesture recognition rules", () => {
   });
 
   it("never repeats while the originally triggered gesture remains held", () => {
-    const gate = new GestureGate({ holdMs: 200, cooldownMs: 500, rearmMs: 300 });
+    const gate = new GestureGate({ holdMs: 200, cooldownMs: 500 });
     gate.update("one", 0);
     expect(gate.update("one", 200).trigger).toBe("one");
     expect(gate.update("one", 900).armed).toBe(false);
@@ -72,7 +77,7 @@ describe("gesture recognition rules", () => {
   });
 
   it("does not count a post-activation suppression window as hand release", () => {
-    const gate = new GestureGate({ holdMs: 200, cooldownMs: 500, rearmMs: 300 });
+    const gate = new GestureGate({ holdMs: 200, cooldownMs: 500 });
     gate.update("one", 0);
     expect(gate.update("one", 200).trigger).toBe("one");
     expect(gate.suppress().armed).toBe(false);
@@ -80,28 +85,37 @@ describe("gesture recognition rules", () => {
     expect(gate.update("one", 1500).armed).toBe(false);
   });
 
-  it("can re-arm through a deliberately held different gesture", () => {
-    const gate = new GestureGate({ holdMs: 200, cooldownMs: 500, rearmMs: 300 });
+  it("accepts a direct pose change without requiring a neutral hand", () => {
+    const gate = new GestureGate({ holdMs: 200, cooldownMs: 500 });
     gate.update("one", 0);
     expect(gate.update("one", 200).trigger).toBe("one");
-    expect(gate.update("two", 500).armed).toBe(false);
-    expect(gate.update("two", 800).armed).toBe(true);
-    expect(gate.update("two", 999).trigger).toBeUndefined();
-    expect(gate.update("two", 1000).trigger).toBe("two");
+    expect(gate.update("two", 699).armed).toBe(false);
+    expect(gate.update("two", 700).armed).toBe(true);
+    expect(gate.update("two", 899).trigger).toBeUndefined();
+    expect(gate.update("two", 900).trigger).toBe("two");
   });
 
-  it("supports a 150ms minimum hold without bypassing cooldown and re-arm", () => {
-    const gate = new GestureGate({ holdMs: 50, cooldownMs: 300, rearmMs: 100 });
+  it("allows the same cue again after a different pose without lowering the hand", () => {
+    const gate = new GestureGate({ holdMs: 75, cooldownMs: 300 });
+    gate.update("one", 0);
+    expect(gate.update("one", 75).trigger).toBe("one");
+    expect(gate.update("two", 200).armed).toBe(false);
+    expect(gate.update("one", 375).armed).toBe(true);
+    expect(gate.update("one", 450).trigger).toBe("one");
+  });
+
+  it("supports a 75ms minimum hold without bypassing cooldown or same-pose latching", () => {
+    const gate = new GestureGate({ holdMs: 50, cooldownMs: 300 });
     gate.update("one", 0);
     expect(gate.update("one", MIN_GESTURE_HOLD_MS - 1).trigger).toBeUndefined();
     expect(gate.update("one", MIN_GESTURE_HOLD_MS).trigger).toBe("one");
     expect(gate.update("one", 200).trigger).toBeUndefined();
 
     expect(gate.update(null, 300).armed).toBe(false);
-    expect(gate.update(null, 450).armed).toBe(true);
-    gate.update("one", 451);
-    expect(gate.update("one", 600).trigger).toBeUndefined();
-    expect(gate.update("one", 601).trigger).toBe("one");
+    expect(gate.update(null, 375).armed).toBe(true);
+    gate.update("one", 376);
+    expect(gate.update("one", 450).trigger).toBeUndefined();
+    expect(gate.update("one", 451).trigger).toBe("one");
   });
 
   it("rejects a single noisy frame and stabilizes a repeated gesture", () => {
@@ -109,8 +123,14 @@ describe("gesture recognition rules", () => {
     expect(stabilizer.update({ gesture: "one", confidence: 0.92 }, 0).gesture).toBeNull();
     expect(stabilizer.update({ gesture: "four", confidence: 0.8 }, 70).gesture).toBeNull();
     stabilizer.update({ gesture: "one", confidence: 0.9 }, 140);
-    expect(stabilizer.update({ gesture: "one", confidence: 0.94 }, 210).gesture).toBeNull();
+    expect(stabilizer.update({ gesture: "one", confidence: 0.94 }, 210).gesture).toBe("one");
     expect(stabilizer.update({ gesture: "one", confidence: 0.95 }, 280).gesture).toBe("one");
+  });
+
+  it("accepts two consecutive strong frames for a fast but deliberate cue", () => {
+    const stabilizer = new GestureStabilizer();
+    expect(stabilizer.update({ gesture: "one", confidence: 0.94, quality: 0.95 }, 0).gesture).toBeNull();
+    expect(stabilizer.update({ gesture: "one", confidence: 0.96, quality: 0.95 }, 90).gesture).toBe("one");
   });
 
   it("does not turn neutral hand movement into an activation intent", () => {

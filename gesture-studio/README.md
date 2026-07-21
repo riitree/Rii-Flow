@@ -1,6 +1,6 @@
 # Rii-Flow
 
-Rii-Flow is a local hands-free recording studio built with React, TypeScript, Vite, MediaPipe Tasks Vision, canvas composition, and MediaRecorder.
+Rii-Flow is a local-first presentation operating system for talking-head explanations, product demos, and presentations. It uses continuous speech as context and gestures as confirmation so creators can produce a composed video without operating a traditional editing timeline. The app is built with React, TypeScript, Vite, MediaPipe Tasks Vision, canvas composition, and MediaRecorder.
 
 ## Requirements
 
@@ -16,7 +16,7 @@ Rii-Flow is a local hands-free recording studio built with React, TypeScript, Vi
 npm install
 ```
 
-The npm `postinstall` step copies MediaPipe's WASM runtime into `public/mediapipe/wasm`. The gesture model is stored at `public/models/gesture_recognizer.task`. Runtime inference does not use a CDN.
+The npm `postinstall` step copies MediaPipe's WASM runtime into `public/mediapipe/wasm`. The gesture model is stored at `public/models/gesture_recognizer.task`, and the offline streaming English speech model is stored at `public/models/vosk-model-small-en-us-0.15.tar.gz`. Runtime inference does not use a CDN. If the speech model is intentionally removed while developing, restore it with `npm run speech:model`.
 
 ## Run
 
@@ -24,7 +24,7 @@ The npm `postinstall` step copies MediaPipe's WASM runtime into `public/mediapip
 npm run dev
 ```
 
-Open the localhost URL printed by Vite. The complete workflow stays on one screen: import assets, assign each a unique gesture and placement, choose camera and microphone sources, connect a recording destination, then select **Start Studio**. The same primary action becomes **Record** when the studio is ready. Importing, gesture assignment, and placement remain available during recording. A fist always hides the currently focused overlay.
+Open the localhost URL printed by Vite. Rii-Flow separates setup into three focused steps: import visuals, organize them into Concepts, and present. Related filenames are grouped automatically; each Concept has a display name, natural-language aliases, animation, cooldown, and optional scene membership. Select **Start Studio** on the final screen; the same primary action becomes **Record** when the camera and local gesture model are ready.
 
 Camera labels become available after browser permission is granted. The studio displays the actual camera resolution and frame rate reported by the selected device, which may be lower than the requested preset.
 
@@ -32,26 +32,32 @@ After the studio starts, **Share screen** opens the browser's private source pic
 
 ## Local session and takes
 
-Rii-Flow does not require an account. The current media library, assignments, layouts, and preferences are stored locally in IndexedDB and restored after refresh. Browser site-data controls still apply: clearing this site's storage deletes the local session. The app requests persistent browser storage when the browser supports it.
+Rii-Flow does not require an account. The current story queue, media, layouts, and preferences are stored locally in IndexedDB and restored after refresh. Browser site-data controls still apply: clearing this site's storage deletes the local session. The app requests persistent browser storage when the browser supports it.
 
 The recorder uses a neutral timestamp filename while capturing so direct-to-folder saving can begin immediately. After recording, the inline rename field opens for the creator to choose the real filename; recordings can also be renamed later from the Take list. Finished recordings appear with duration, file size, resolution, favorite status, preview, download, and delete controls. Choose a recording destination near the top of the media library for the safest long-session workflow: one-second recorder chunks stream directly into that folder instead of accumulating the full recording in memory. Folder access is remembered locally and can be reconnected after a browser restart. If no folder is selected, the current session uses an in-memory fallback and clearly labels that limitation.
 
 Recording and finalization lock camera, quality, and ratio changes; closing the page while either is active displays a browser warning.
 
-## One-screen workflow
+## Three-step workflow
 
-- **Media dock:** import media and keep gesture, placement, size, background, saved spawn-position, video-trim, and image-crop controls visible.
-- **Stage:** monitor the camera and set a focused overlay's spawn position before recording. One open palm moves it; two open palms resize it.
-- **Screen overlay strip:** connect or change a shared tab/window/display, see its actual resolution, FPS, and audio status, then set placement, size, visibility, and stage position without changing the camera.
-- **Signal rail:** see the detected gesture and finished takes without shrinking the stage.
-- **Transport:** one primary action progresses from Start Studio to Record; Stop and the timer remain independent.
-- **Takes drawer:** preview, rename, rate, download, or remove recordings without leaving the studio.
+1. **Visuals:** import images, GIFs, videos, CSV, or JSON. Existing local media is restored after refresh.
+2. **Concepts:** related visuals are grouped into ideas such as Dashboard, Pricing, or Architecture. Rename the Concept, edit its spoken aliases, or drag a visual between Concepts inline.
+3. **Present:** camera, microphone, current Intent, gesture status, and recording transport share one focused performance screen. The Setup control safely returns to Concepts when no recording is active.
 
-Single-hand activation gestures always accept either hand, so creators do not need to configure handedness. Two peace signs, two thumbs up, and thumb-plus-peace are available as deliberate two-hand assignments. Open palm is reserved for media manipulation and cannot be assigned to an asset. A fist is always accepted from either hand for safety. Duplicate gesture assignments are prevented.
+## Voice + gesture workflow
 
-Open-palm movement uses the tuned **Comfort** reach: a central, aspect-aware hand area maps across the complete stage so landscape and portrait edges require less physical travel. The curve keeps central movement controlled and accelerates gently toward the limits. Asset acquisition is dual-path: putting a physical palm directly behind the visible asset takes priority, while the compressed comfort position can also acquire it. After lock, movement follows the comfort curve without jumping. Two-palm resize sensitivity remains unchanged.
+Live speech uses three independent lanes. A browser-provided on-device English recognizer is preferred when that browser has its language pack installed. Otherwise Rii-Flow uses the bundled Vosk English model in a dedicated worker and publishes partial words continuously; its grammar is rebuilt from every Concept name, alias, and natural phrase such as "pull up dashboard." The rolling Tiny Whisper recognizer remains a last-resort compatibility fallback and is no longer preloaded during a normal studio session.
 
-Assets assigned to a collage are shown only inside that scene card and are removed from the standalone-media list. Deleting the scene releases those assets back into the standalone list with their media edits intact.
+Rii-Flow continuously transcribes the selected microphone, but speech is never executed as a command. The Intent Engine ranks the Concepts that best match the recent sentence. For example, “compare the dashboard with pricing” can place Dashboard and Pricing in the Intent Queue while leaving the stage untouched.
+
+- **Speak naturally:** updates context only. Low-confidence or ambiguous speech simply changes the ranking.
+- **Pinch away from a live visual:** confirms the top unambiguous Intent and shows its Concept. A short 70 ms stability gate keeps confirmation responsive without firing on noise.
+- **Pinch on a live visual and drag:** moves that visual directly.
+- **Two open hands:** resizes the selected visual.
+- **Open palm:** resets its transform.
+- **Fist:** immediately hides the selected visual.
+
+The Intent Queue and tracking indicators are operator UI and never enter the recording canvas. Pinch confirmation is latched until release and every Concept has a cooldown, so holding the pose cannot repeatedly spawn the same visual. Gesture inference, speech inference, canvas rendering, and recording run on independent asynchronous lanes; recording never waits for speech.
 
 ## Non-destructive media editing
 
@@ -71,10 +77,22 @@ The tests cover gesture mappings, rolling-window stabilization and hold behavior
 
 ## Architecture
 
-- `src/core/gesture.ts` converts raw MediaPipe output into stable intent with quality checks, hysteresis, a short fist fast-path, cooldown, and neutral re-arm.
+- `src/core/concepts.ts` groups imported assets and scenes into stable, locally persisted Concepts with display names, aliases, animation, cooldown, and membership.
+- `src/core/intentEngine.ts` ranks Concepts from continuous speech while preserving ambiguity; only a confident top candidate can be confirmed.
+- `src/core/studioEvents.ts` provides typed asynchronous event lanes between speech, intent, gesture confirmation, and overlays so no subsystem awaits another.
+- `src/core/pinch.ts` detects normalized thumb/index pinches and provides the short latched confirmation gate used by the live interaction path.
+- `src/core/directorQueue.ts` retains deterministic next/back story ordering for existing projects.
+- `src/core/gesture.ts` converts raw MediaPipe output into stable intent with quality checks, hysteresis, a short fist fast-path, and pose-change cooldown protection.
+- `src/core/voiceTriggers.ts` supplies local English alias suggestions and the lightweight transcription vocabulary used before the Intent Engine.
+- `src/core/browserSpeech.ts` owns the preferred browser/on-device streaming lane, including language-pack detection and Concept phrase biasing.
+- `src/core/voskSpeech.ts` owns the reliable local streaming lane: a worker-hosted English recognizer constrained to the current presentation vocabulary and fed only by the selected microphone.
+- `src/core/liveVoice.ts` captures only the selected microphone into a low-rate rolling speech window; it never listens to shared-screen, imported-video, music, or cue-sound audio.
+- `src/core/operatorControls.ts` contains retained compatibility controls for older saved projects; the current Concept flow does not expose a gesture shelf.
+- `src/core/spotlight.ts` adds a cached, canvas-native focus lift and outside dimming without introducing another video decoder or full-resolution inference path.
 - `src/workers/gesture.worker.ts` runs the local recognizer off the UI thread. Frames are transferred from the dedicated 640×360 inference canvas; the full-resolution recording canvas is never sent through MediaPipe.
 - `src/core/compositor.ts` renders active media, per-asset backgrounds, and saved transforms through the full-resolution recording pipeline.
 - `src/core/mediaEdits.ts` normalizes video in/out ranges and exact image-crop source rectangles without altering original files.
+- `src/core/framePipeline.ts` selects direct camera-track frame delivery when the browser supports it, with a visible-tab fallback for older browsers.
 - `src/core/performance.ts` aligns full-resolution composition with the granted recording FPS and reports compositor cost against the available frame budget.
 - `src/core/captionRender.ts` performs the single post-record MP4 render used for finished-take trims, captions, or both.
 - `src/core/manipulation.ts` uses adaptive handedness-keyed palm smoothing: small resting jitter stays filtered while deliberate motion receives a faster response for drag and resize.
@@ -82,7 +100,7 @@ The tests cover gesture mappings, rolling-window stabilization and hold behavior
 
 ## Recording
 
-The full-resolution canvas always matches the camera's granted dimensions and selected ratio. A shared screen is drawn as another live, aspect-preserving overlay on that same canvas, so connecting it never changes or replaces the camera composition. Composition follows the camera's granted FPS up to the selected preset.
+The full-resolution canvas always matches the camera's granted dimensions and selected ratio. A shared screen is drawn as another live, aspect-preserving overlay on that same canvas, so connecting it never changes or replaces the camera composition. In current Chromium browsers, fresh camera frames drive composition directly instead of relying on the page's visible animation cycle; the latest shared-screen frame is retained for the next composition. This keeps camera, screen, canvas recording, and gesture sampling active when another tab or app window is in front. Older browsers fall back to visible-page composition and show a warning before recording.
 
 Gesture inference still uses only the webcam on a separate 640×360 canvas at roughly 10–14 fps. Full-resolution screen frames never enter MediaPipe. MediaRecorder captures the single full-resolution composed canvas plus the local audio mix. The microphone, browser-provided shared audio, enabled imported-video audio, and cue sounds have separate routes. Shared audio is not echoed back through Rii-Flow, preventing doubled game/tab sound, and microphone-only caption capture remains isolated from every other route.
 

@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyAssetTransform, constrainAssetTransform, entranceAnimationFrame, presetMediaRect, sceneBaseRect, sceneMemberCanvasTransform, sceneMemberContentRects, sceneMemberDisplayRects, sceneMemberDrawOrder, sceneMemberRects, sceneMemberRelativeTransform, screenOverlayBaseRect, screenOverlayDisplayRect, snapScaleToTemplate, snapTransformToCameraBorder, snappedAssetSize, stageBackdropForLayers } from "./compositor";
-import { cameraFrameViewport } from "./cameraFrame";
+import { applyAssetTransform, baseAssetRect, constrainAssetTransform, entranceAnimationFrame, motionAnimationFrame, presetMediaRect, reflowAssetPanelBackdropForLayer, reflowAssetPanelRect, reflowLayerPanelBackdropForLayer, sceneBaseRect, sceneDisplayRect, sceneFocusedMemberRect, sceneMemberCanvasTransform, sceneMemberContentRects, sceneMemberDisplayRects, sceneMemberDrawOrder, sceneMemberRects, sceneMemberRelativeTransform, sceneRevealAnimationFrame, sceneRevealPanelRect, screenOverlayBaseRect, screenOverlayDisplayRect, stageBackdropForLayers } from "./compositor";
 import type { StudioAsset, StudioScene } from "../types";
 
 const scene: StudioScene = {
@@ -13,6 +12,10 @@ const scene: StudioScene = {
 };
 
 describe("asset display geometry", () => {
+  it("preserves user rotation while constraining position and scale", () => {
+    expect(constrainAssetTransform(1280, 720, { x: 0, y: 0, width: 320, height: 180 }, { x: 0.5, y: 0.5, scale: 1, rotation: 0.75 }).rotation).toBe(0.75);
+  });
+
   it("uses an asset's background for the full stage, not its media rectangle", () => {
     const cameraAsset: StudioAsset = { id: "camera", name: "Camera", kind: "image", placement: "center", size: "small", dataView: "table", stageBackground: "camera" };
     const blackAsset: StudioAsset = { ...cameraAsset, id: "black", name: "Black", stageBackground: "black" };
@@ -34,6 +37,81 @@ describe("asset display geometry", () => {
     expect(stageBackdropForLayers([{ id: asset.id, kind: "asset", asset: { ...asset, stageBackgroundColor: "invalid" } }])).toEqual({ mode: "custom", color: "#111111" });
   });
 
+  it("confines a make-room background to its left or right panel", () => {
+    const asset: StudioAsset = {
+      id: "side",
+      name: "Side",
+      kind: "image",
+      placement: "right",
+      size: "medium",
+      dataView: "table",
+      cameraReflow: "make-room",
+      stageBackground: "custom",
+      stageBackgroundColor: "#3564d8"
+    };
+    const layer = { id: asset.id, kind: "asset" as const, asset };
+    expect(stageBackdropForLayers([layer])).toEqual({ mode: "camera" });
+    expect(reflowAssetPanelBackdropForLayer(1920, 1080, layer)).toEqual({
+      mode: "custom",
+      color: "#3564d8",
+      rect: { x: 1152, y: 0, width: 768, height: 1080 }
+    });
+  });
+
+  it("uses only the newest live cue background while preserving earlier side assets", () => {
+    const earlier: StudioAsset = {
+      id: "earlier",
+      name: "Earlier",
+      kind: "image",
+      placement: "left",
+      size: "medium",
+      dataView: "table",
+      cameraReflow: "make-room",
+      stageBackground: "white"
+    };
+    const newest: StudioAsset = {
+      ...earlier,
+      id: "newest",
+      name: "Newest",
+      placement: "right",
+      stageBackground: "custom",
+      stageBackgroundColor: "#6547d9"
+    };
+    const layers = [
+      { id: earlier.id, kind: "asset" as const, asset: earlier },
+      { id: newest.id, kind: "asset" as const, asset: newest }
+    ];
+    expect(stageBackdropForLayers(layers)).toEqual({ mode: "camera" });
+    expect(reflowAssetPanelBackdropForLayer(1920, 1080, layers[1])).toEqual({
+      mode: "custom",
+      color: "#6547d9",
+      rect: { x: 1152, y: 0, width: 768, height: 1080 }
+    });
+  });
+
+  it("paints the newest background across the largest live side window", () => {
+    const newest: StudioAsset = {
+      id: "small-newest",
+      name: "Small newest",
+      kind: "image",
+      placement: "right",
+      size: "small",
+      dataView: "table",
+      cameraReflow: "make-room",
+      stageBackground: "cream"
+    };
+    expect(reflowAssetPanelBackdropForLayer(
+      1920,
+      1080,
+      { id: newest.id, kind: "asset", asset: newest },
+      0.5
+    )).toEqual({
+      mode: "cream",
+      color: "#f5f0e6",
+      rect: { x: 960, y: 0, width: 960, height: 1080 }
+    });
+  });
+
   it("uses a scene's own stage background for the entire composition", () => {
     const member: StudioAsset = { id: "member", name: "Member", kind: "image", placement: "center", size: "small", dataView: "table", stageBackground: "black" };
     const customScene: StudioScene = { ...scene, stageBackground: "custom", stageBackgroundColor: "#6547d9" };
@@ -41,11 +119,49 @@ describe("asset display geometry", () => {
     expect(stageBackdropForLayers([{ id: scene.id, kind: "scene", scene, assets: [member] }])).toEqual({ mode: "camera" });
   });
 
+  it("confines a Side Reveal scene and its background to a synchronized panel", () => {
+    const revealScene: StudioScene = {
+      ...scene,
+      size: "medium",
+      revealSide: "right",
+      revealMotion: "smooth",
+      stageBackground: "custom",
+      stageBackgroundColor: "#3157d5"
+    };
+    const layer = { id: "scene:scene", kind: "scene" as const, scene: revealScene, assets: [] };
+    expect(sceneRevealPanelRect(1920, 1080, revealScene)).toEqual({ x: 1152, y: 0, width: 768, height: 1080 });
+    expect(sceneBaseRect(1920, 1080, revealScene)).toEqual({ x: 1152, y: 0, width: 768, height: 1080 });
+    expect(sceneDisplayRect(1920, 1080, { ...revealScene, transform: { x: 0.4, y: 0.5, scale: 0.5 } })).toEqual({ x: 576, y: 270, width: 384, height: 540 });
+    expect(stageBackdropForLayers([layer])).toEqual({ mode: "camera" });
+    expect(reflowLayerPanelBackdropForLayer(1920, 1080, layer)).toEqual({
+      mode: "custom",
+      color: "#3157d5",
+      rect: { x: 1152, y: 0, width: 768, height: 1080 }
+    });
+  });
+
+  it("slides a Side Reveal scene as one cheap group transform", () => {
+    expect(sceneRevealAnimationFrame("left", "smooth", 0, 640)).toEqual({ translateX: -640, progress: 0 });
+    expect(sceneRevealAnimationFrame("right", "smooth", 55, 640)).toEqual({ translateX: 80, progress: 0.875 });
+    expect(sceneRevealAnimationFrame("right", "soft", 55, 640).translateX).toBeGreaterThan(0);
+    expect(sceneRevealAnimationFrame("left", "bounce", 80, 640).progress).toBeGreaterThan(0.8);
+    expect(sceneRevealAnimationFrame("right", "bounce", 110, 640)).toEqual({ translateX: 0, progress: 1 });
+  });
+
   it("spawns media in a small relative window by default", () => {
     const rect = presetMediaRect(1920, 1080, 640, 360, "center", "small");
     expect(rect.width / 1920).toBeCloseTo(0.28);
     expect(rect.height / 1080).toBeLessThan(0.32);
     expect(rect.x).toBeGreaterThan(600);
+  });
+
+  it("expands a focused scene member to its configured stage size", () => {
+    const dataAsset: StudioAsset = { id: "data", name: "Data", kind: "json", rows: [], placement: "center", size: "small", dataView: "table" };
+    const media = { images: new Map<string, HTMLImageElement>(), videos: new Map<string, HTMLVideoElement>() };
+    const medium = sceneFocusedMemberRect(1920, 1080, { ...scene, memberFocusModes: { data: "medium" } }, dataAsset, media);
+    expect(medium.width / 1920).toBeCloseTo(0.72);
+    expect(medium.height / 1080).toBeCloseTo(0.72);
+    expect(sceneFocusedMemberRect(1920, 1080, { ...scene, memberFocusModes: { data: "full" } }, dataAsset, media)).toEqual({ x: 0, y: 0, width: 1920, height: 1080 });
   });
 
   it("keeps a shared screen as an aspect-true overlay on the camera canvas", () => {
@@ -100,97 +216,33 @@ describe("asset display geometry", () => {
     expect(constrained.y).toBeCloseTo(0.5);
   });
 
-  it("snaps only to full screen and preserves every other custom size", () => {
-    expect(snappedAssetSize(1280, 720, { x: 0, y: 0, width: 1100, height: 620 })).toBe("full");
-    expect(snappedAssetSize(1280, 720, { x: 0, y: 0, width: 420, height: 230 })).toBeNull();
-    expect(snappedAssetSize(1280, 720, { x: 0, y: 0, width: 700, height: 390 })).toBeNull();
-  });
-
-  it("magnetically restores scene resizing near the template scale", () => {
-    expect(snapScaleToTemplate(0.93)).toBe(1);
-    expect(snapScaleToTemplate(1.08)).toBe(1);
-    expect(snapScaleToTemplate(0.9)).toBe(0.9);
-    expect(snapScaleToTemplate(1.12)).toBe(1.12);
-  });
-
-  it("snaps overlays to camera corners and every edge while ignoring its border", () => {
-    const canvas = { width: 1280, height: 720 };
+  it("allows an asset to reach every true canvas edge", () => {
     const base = { x: 0, y: 0, width: 320, height: 180 };
-    const viewport = cameraFrameViewport(canvas.width, canvas.height, { enabled: true, mode: "black", sizePercent: 10, customColor: "#123456" });
-    const nearCameraCorner = {
-      x: (viewport.x + base.width / 2 + 18) / canvas.width,
-      y: (viewport.y + base.height / 2 + 16) / canvas.height,
-      scale: 1
-    };
-    const snapped = snapTransformToCameraBorder(canvas.width, canvas.height, base, nearCameraCorner, viewport);
-    expect(snapped.target).toBe("top-left");
-    expect(applyAssetTransform(canvas.width, canvas.height, base, snapped.transform)).toEqual({
-      x: viewport.x,
-      y: viewport.y,
-      width: base.width,
-      height: base.height
-    });
+    const right = applyAssetTransform(1280, 720, base, { x: 2, y: 0.5, scale: 1 });
+    const left = applyAssetTransform(1280, 720, base, { x: -1, y: 0.5, scale: 1 });
+    expect(left.x).toBe(0);
+    expect(right.x + right.width).toBe(1280);
+  });
 
-    const canvasCorner = snapTransformToCameraBorder(canvas.width, canvas.height, base, {
-      x: base.width / canvas.width / 2,
-      y: base.height / canvas.height / 2,
-      scale: 1
-    }, viewport);
-    expect(canvasCorner.target).toBeNull();
+  it("keeps a transformed make-room asset inside its side window", () => {
+    const panel = { x: 896, y: 0, width: 384, height: 720 };
+    const base = { x: 988, y: 260, width: 200, height: 200 };
+    const leftEdge = applyAssetTransform(1280, 720, base, { x: 0.1, y: 0.5, scale: 1 }, panel);
+    const rightEdge = applyAssetTransform(1280, 720, base, { x: 0.99, y: 0.5, scale: 1 }, panel);
+    const enlarged = applyAssetTransform(1280, 720, base, { x: 0.9, y: 0.5, scale: 4 }, panel);
+    expect(leftEdge.x).toBe(panel.x);
+    expect(rightEdge.x + rightEdge.width).toBe(panel.x + panel.width);
+    expect(enlarged.width).toBe(panel.width);
+    expect(enlarged.x).toBe(panel.x);
+  });
 
-    const bottomRight = snapTransformToCameraBorder(canvas.width, canvas.height, base, {
-      x: (viewport.x + viewport.width - base.width / 2 - 12) / canvas.width,
-      y: (viewport.y + viewport.height - base.height / 2 + 10) / canvas.height,
-      scale: 1
-    }, viewport);
-    const bottomRightRect = applyAssetTransform(canvas.width, canvas.height, base, bottomRight.transform);
-    expect(bottomRight.target).toBe("bottom-right");
-    expect(bottomRightRect.x + bottomRightRect.width).toBe(viewport.x + viewport.width);
-    expect(bottomRightRect.y + bottomRightRect.height).toBe(viewport.y + viewport.height);
-
-    const top = snapTransformToCameraBorder(canvas.width, canvas.height, base, {
-      x: 0.5,
-      y: (viewport.y + base.height / 2 + 14) / canvas.height,
-      scale: 1
-    }, viewport);
-    const topRect = applyAssetTransform(canvas.width, canvas.height, base, top.transform);
-    expect(top.target).toBe("top");
-    expect(topRect.y).toBe(viewport.y);
-    expect(topRect.x + topRect.width / 2).toBeCloseTo(canvas.width / 2);
-
-    const outsideLightSnapZone = snapTransformToCameraBorder(canvas.width, canvas.height, base, {
-      x: 0.5,
-      y: (viewport.y + base.height / 2 + 26) / canvas.height,
-      scale: 1
-    }, viewport);
-    expect(outsideLightSnapZone.target).toBeNull();
-
-    const bottom = snapTransformToCameraBorder(canvas.width, canvas.height, base, {
-      x: 0.43,
-      y: (viewport.y + viewport.height - base.height / 2 - 10) / canvas.height,
-      scale: 1
-    }, viewport);
-    const bottomRect = applyAssetTransform(canvas.width, canvas.height, base, bottom.transform);
-    expect(bottom.target).toBe("bottom");
-    expect(bottomRect.y + bottomRect.height).toBe(viewport.y + viewport.height);
-
-    const left = snapTransformToCameraBorder(canvas.width, canvas.height, base, {
-      x: (viewport.x + base.width / 2 + 11) / canvas.width,
-      y: 0.48,
-      scale: 1
-    }, viewport);
-    const leftRect = applyAssetTransform(canvas.width, canvas.height, base, left.transform);
-    expect(left.target).toBe("left");
-    expect(leftRect.x).toBe(viewport.x);
-
-    const right = snapTransformToCameraBorder(canvas.width, canvas.height, base, {
-      x: (viewport.x + viewport.width - base.width / 2 - 9) / canvas.width,
-      y: 0.55,
-      scale: 1
-    }, viewport);
-    const rightRect = applyAssetTransform(canvas.width, canvas.height, base, right.transform);
-    expect(right.target).toBe("right");
-    expect(rightRect.x + rightRect.width).toBe(viewport.x + viewport.width);
+  it("lets a small cue use a larger shared window without crossing it", () => {
+    const asset: StudioAsset = { id: "small", name: "Small", kind: "image", placement: "right", size: "small", dataView: "table", cameraReflow: "make-room", transform: { x: 0.52, y: 0.5, scale: 1 } };
+    const sharedWindow = { x: 640, y: 0, width: 640, height: 720 };
+    const rect = baseAssetRect(1280, 720, asset, 400, 400);
+    const output = applyAssetTransform(1280, 720, rect, asset.transform, sharedWindow);
+    expect(output.x).toBe(sharedWindow.x);
+    expect(output.x + output.width).toBeLessThanOrEqual(sharedWindow.x + sharedWindow.width);
   });
 
   it("starts a multi-asset scene smaller than the stage", () => {
@@ -268,10 +320,28 @@ describe("asset display geometry", () => {
 
   it("uses inexpensive transform-and-opacity entrance animations", () => {
     expect(entranceAnimationFrame("fade", 0).alpha).toBe(0);
-    expect(entranceAnimationFrame("pop", 200).scale).toBeGreaterThan(0.82);
-    expect(entranceAnimationFrame("bounce", 220).scale).toBeGreaterThan(1);
-    expect(Math.abs(entranceAnimationFrame("float", 900).translateY)).toBeGreaterThan(0);
-    expect(entranceAnimationFrame("float", Number.POSITIVE_INFINITY)).toEqual({ alpha: 1, scale: 1, translateY: 0 });
-    expect(entranceAnimationFrame("slide", 420)).toEqual({ alpha: 1, scale: 1, translateY: 0 });
+    expect(entranceAnimationFrame("pop", 100).scale).toBeGreaterThan(0.82);
+    expect(entranceAnimationFrame("bounce", 80).scale).toBeGreaterThan(1);
+    expect(entranceAnimationFrame("float", 100).translateY).toBeGreaterThan(0);
+    expect(entranceAnimationFrame("slide-left", 0).translateX).toBeLessThan(0);
+    expect(entranceAnimationFrame("slide-right", 0).translateX).toBeGreaterThan(0);
+    expect(entranceAnimationFrame("zoom", 0).scale).toBeGreaterThan(1);
+    expect(entranceAnimationFrame("drop", 0).translateY).toBeLessThan(0);
+    expect(entranceAnimationFrame("float", Number.POSITIVE_INFINITY)).toEqual({ alpha: 1, scale: 1, translateX: 0, translateY: 0 });
+    expect(entranceAnimationFrame("slide", 420)).toEqual({ alpha: 1, scale: 1, translateX: 0, translateY: 0 });
+  });
+
+  it("uses recording-safe transform-only continuing motions", () => {
+    expect(motionAnimationFrame("none", 1200)).toEqual({ scale: 1, translateX: 0, translateY: 0, rotation: 0 });
+    expect(Math.abs(motionAnimationFrame("float", 1000).translateY)).toBeGreaterThan(0);
+    expect(motionAnimationFrame("pulse", 1000).scale).not.toBe(1);
+    expect(Math.abs(motionAnimationFrame("sway", 1000).rotation)).toBeGreaterThan(0);
+    expect(Math.abs(motionAnimationFrame("drift", 1000).translateX)).toBeGreaterThan(0);
+  });
+
+  it("preserves media aspect inside a make-room side region", () => {
+    const asset = { id: "split", name: "Split", kind: "image", placement: "right", size: "full", dataView: "table", cameraReflow: "make-room" } as const;
+    expect(reflowAssetPanelRect(1280, 720, asset)).toEqual({ x: 640, y: 0, width: 640, height: 720 });
+    expect(baseAssetRect(1280, 720, asset, 1600, 900)).toEqual({ x: 640, y: 180, width: 640, height: 360 });
   });
 });

@@ -9,6 +9,7 @@ describe("captioned take rendering", () => {
   it("names trim-only and combined edits clearly", () => {
     expect(editedFileName("Take.mp4", { captions: false, trimmed: true })).toBe("Take-trimmed.mp4");
     expect(editedFileName("Take.mp4", { captions: true, trimmed: true })).toBe("Take-edited.mp4");
+    expect(editedFileName("Take.mp4", { captions: false, trimmed: false, wordCues: true })).toBe("Take-animated.mp4");
   });
 
   it("normalizes a safe render range inside the source duration", () => {

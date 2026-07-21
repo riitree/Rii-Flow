@@ -1,9 +1,13 @@
 import type { CanvasAspectId } from "./aspect";
 import { DEFAULT_CAMERA_FRAME, type CameraFrameSettings } from "./cameraFrame";
 import type { QualityId } from "./quality";
-import type { StudioAsset, StudioScene, TriggerHand } from "../types";
+import type { GestureSequenceMap, StudioAsset, StudioScene, TriggerHand } from "../types";
 import type { CaptionSegment, CaptionStyle } from "./captions";
+import type { VoiceEmphasisMarker, WordAnimationCue } from "./wordCues";
 import type { MovementReachMode } from "./manipulation";
+import type { StudioConcept } from "./concepts";
+import type { DirectorTrackEvent } from "./directorTrack";
+import type { CanvasWidget } from "./widgets";
 
 const DATABASE_NAME = "gesture-studio-local";
 const DATABASE_VERSION = 2;
@@ -13,7 +17,6 @@ const RECORDINGS_DIRECTORY_KEY = "recordings-directory";
 export interface TimingSettings {
   holdMs: number;
   cooldownMs: number;
-  rearmMs: number;
 }
 
 export interface StudioProjectSnapshot {
@@ -23,6 +26,9 @@ export interface StudioProjectSnapshot {
   updatedAt: number;
   assets: StudioAsset[];
   scenes: StudioScene[];
+  widgets?: CanvasWidget[];
+  concepts?: StudioConcept[];
+  gestureSequences?: GestureSequenceMap;
   selectedCameraId: string;
   selectedMicrophoneId: string;
   qualityId: QualityId;
@@ -62,6 +68,8 @@ export interface StoredTake {
   folderBacked: boolean;
   rating: TakeRating;
   captionAudioAvailable?: boolean;
+  voiceEmphasis?: VoiceEmphasisMarker[];
+  directorTrack?: DirectorTrackEvent[];
 }
 
 interface StoredSetting<T = unknown> {
@@ -86,6 +94,7 @@ export interface StoredCaptionDocument {
   takeId: string;
   segments: CaptionSegment[];
   style: CaptionStyle;
+  wordCues?: WordAnimationCue[];
   updatedAt: number;
 }
 
@@ -144,6 +153,8 @@ export function createBlankProject(name = "Untitled project"): StudioProjectSnap
     updatedAt: now,
     assets: [],
     scenes: [],
+    concepts: [],
+    gestureSequences: {},
     selectedCameraId: "",
     selectedMicrophoneId: "none",
     qualityId: "720p30",
@@ -151,7 +162,7 @@ export function createBlankProject(name = "Untitled project"): StudioProjectSnap
     mirrorCamera: false,
     cameraFrame: { ...DEFAULT_CAMERA_FRAME },
     monitorMediaAudio: false,
-    timing: { holdMs: 350, cooldownMs: 700, rearmMs: 220 },
+    timing: { holdMs: 75, cooldownMs: 550 },
     palmHoldMs: 220,
     movementReach: "comfort",
     triggerHand: "any",
@@ -233,7 +244,9 @@ export async function saveTake(take: StoredTake) {
     mimeType: take.mimeType,
     folderBacked: take.folderBacked,
     rating: take.rating,
-    captionAudioAvailable: Boolean(take.captionAudioAvailable)
+    captionAudioAvailable: Boolean(take.captionAudioAvailable),
+    voiceEmphasis: take.voiceEmphasis?.slice(0, 120),
+    directorTrack: take.directorTrack?.slice(0, 500)
   };
   transaction.objectStore("takes").put(stored);
   await transactionDone(transaction);

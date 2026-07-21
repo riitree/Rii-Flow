@@ -1,6 +1,7 @@
 import { activeCaptionAt, drawCaption, type CaptionSegment, type CaptionStyle } from "./captions";
 import { normalizedCompositionFps, shouldComposeFrame } from "./performance";
 import { composedStream, masterRecorderOptions, recordingMimeType } from "./recording";
+import { activeWordAnimationAt, drawWordAnimation, type WordAnimationCue } from "./wordCues";
 
 type CaptureVideo = HTMLVideoElement & { captureStream?: () => MediaStream };
 
@@ -8,8 +9,9 @@ export function captionedFileName(fileName: string) {
   return `${fileName.replace(/\.mp4$/i, "")}-captioned.mp4`;
 }
 
-export function editedFileName(fileName: string, edits: { captions: boolean; trimmed: boolean }) {
-  const suffix = edits.captions && edits.trimmed ? "edited" : edits.captions ? "captioned" : "trimmed";
+export function editedFileName(fileName: string, edits: { captions: boolean; trimmed: boolean; wordCues?: boolean }) {
+  const textEdited = edits.captions || Boolean(edits.wordCues);
+  const suffix = textEdited && edits.trimmed ? "edited" : edits.captions ? "captioned" : edits.wordCues ? "animated" : "trimmed";
   return `${fileName.replace(/\.mp4$/i, "")}-${suffix}.mp4`;
 }
 
@@ -51,6 +53,7 @@ export async function renderCaptionedTake(options: {
   bitrate: number;
   segments?: CaptionSegment[];
   style?: CaptionStyle;
+  wordCues?: WordAnimationCue[];
   startTime?: number;
   endTime?: number;
   onProgress?: (progress: number) => void;
@@ -113,6 +116,9 @@ export async function renderCaptionedTake(options: {
         context.drawImage(video, 0, 0, canvas.width, canvas.height);
         if (options.segments?.length && options.style) {
           drawCaption(context, canvas.width, canvas.height, activeCaptionAt(options.segments, video.currentTime), options.style);
+        }
+        if (options.wordCues?.length) {
+          drawWordAnimation(context, canvas.width, canvas.height, activeWordAnimationAt(options.wordCues, video.currentTime), video.currentTime, options.style);
         }
         options.onProgress?.(Math.min(1, Math.max(0, (video.currentTime - range.start) / range.duration)));
       }
