@@ -390,26 +390,27 @@ function GesturePosture({ gesture }: { gesture: GestureId }) {
   const hand = (raisedCount: number, key: string, transform?: string) => {
     const raisedFrom = 4 - raisedCount;
     const fingers = [
-      { x: 14, y: 17, height: 22 },
-      { x: 23, y: 10, height: 29 },
-      { x: 32, y: 7, height: 32 },
-      { x: 41, y: 12, height: 27 }
+      { raised: "M24 44 C20 34 18 25 20 17", folded: "M24 44 C20 40 20 35 25 34", tip: [20, 17] },
+      { raised: "M31 42 C29 29 28 18 30 9", folded: "M31 42 C27 37 29 32 34 32", tip: [30, 9] },
+      { raised: "M38 41 C38 27 38 15 40 6", folded: "M38 41 C35 36 37 31 42 32", tip: [40, 6] },
+      { raised: "M45 43 C48 31 49 21 50 12", folded: "M45 43 C43 38 46 34 50 36", tip: [50, 12] }
     ];
     return <g key={key} transform={transform}>
-      <rect className="posture-palm" x="12" y="34" width="38" height="29" rx="12" />
+      <path className="posture-palm" d="M22 42 C27 37 43 37 49 42 C55 48 53 61 47 66 C41 71 28 70 22 64 C17 59 17 48 22 42Z" />
+      <path className="posture-wrist" d="M28 66 L28 72 M44 66 L44 72" />
       {fingers.map((finger, index) => {
         const raised = index >= raisedFrom;
-        return <rect key={finger.x} className={raised ? "posture-finger raised" : "posture-finger folded"} x={finger.x} y={raised ? finger.y : 29} width="8" height={raised ? finger.height : 12} rx="4" />;
+        return <g key={finger.raised}><path className={raised ? "posture-finger raised" : "posture-finger folded"} d={raised ? finger.raised : finger.folded} />{raised && <circle className="posture-tip" cx={finger.tip[0]} cy={finger.tip[1]} r="2.4" />}</g>;
       })}
-      <path className="posture-thumb" d="M49 39c8-7 13-5 13 1 0 5-7 11-13 14" />
-      <path className="posture-fold" d="M17 44c8 4 18 4 28 0" />
+      <path className="posture-thumb" d="M49 45 C57 37 64 38 63 44 C62 49 56 53 50 56" />
+      <path className="posture-fold" d="M26 53 C32 49 41 49 47 53" />
     </g>;
   };
 
   if (gesture === "double-one") {
-    return <svg className="gesture-posture double" viewBox="0 0 100 72" aria-hidden="true">
-      {hand(1, "left", "translate(0 7) scale(.82)")}
-      {hand(1, "right", "translate(49 7) scale(.82)")}
+    return <svg className="gesture-posture double" viewBox="0 0 118 76" aria-hidden="true">
+      {hand(1, "left", "translate(0 8) scale(.78)")}
+      {hand(1, "right", "translate(58 8) scale(.78)")}
     </svg>;
   }
   const raised = gesture === "two" ? 2 : gesture === "three" ? 3 : 4;
@@ -6853,7 +6854,10 @@ export default function App() {
                     <div className="workflow-file-options">
                       <label><span>Spawn animation</span><select aria-label={`Spawn animation for ${asset.name}`} value={asset.entranceAnimation ?? "fade"} onChange={(event) => updateAsset(asset.id, { entranceAnimation: event.target.value as EntranceAnimation })}>{ENTRANCE_ANIMATIONS.map((animation) => <option key={animation.id} value={animation.id}>{animation.label}</option>)}</select></label>
                       <label><span>Spawn sound</span><select aria-label={`Spawn sound for ${asset.name}`} value={asset.cueSound ?? "none"} onChange={(event) => updateAsset(asset.id, { cueSound: event.target.value as CueSound })}>{CUE_SOUNDS.map((sound) => <option key={sound.id} value={sound.id}>{sound.label}</option>)}</select></label>
-                      <label><span>Spawn size</span><select aria-label={`Spawn size for ${asset.name}`} value={asset.size} onChange={(event) => updateAsset(asset.id, { size: event.target.value as AssetSize })}>{ASSET_SIZES.map((size) => <option key={size.id} value={size.id}>{size.label}</option>)}</select></label>
+                      <div className="workflow-size-picker" role="group" aria-label={`Spawn size for ${asset.name}`}>
+                        <span><strong>Spawn size</strong><small>Choose visually</small></span>
+                        <div>{ASSET_SIZES.map((size) => { const selected = asset.size === size.id; return <button type="button" key={size.id} className={selected ? "active" : ""} aria-label={`${size.label} spawn size for ${asset.name}`} aria-pressed={selected} onClick={() => updateAsset(asset.id, { size: size.id, transform: undefined })}><i className={`spawn-size-visual ${size.id}`}><b /></i><span>{size.label}</span>{selected && <Check size={12} />}</button>; })}</div>
+                      </div>
                       <div className="workflow-gesture-picker" role="group" aria-label={`Direct gesture for ${asset.name}`}>
                         <span className="workflow-gesture-picker-title"><Hand size={14} /><strong>Gesture</strong><small>Optional</small></span>
                         <div>

@@ -175,8 +175,12 @@ export function videoStyleLayout(id: VideoStyleId, width: number, height: number
       keepSlotsWhileFocused: false
     };
   }
-  const panelWidth = width * 0.42;
-  const panel = id === "left-rail" ? rect(0, 0, panelWidth, height) : rect(width - panelWidth, 0, panelWidth, height);
+  const railTotal = deck?.total ?? assetCount;
+  const compactRail = railTotal > MAX_STYLE_ASSETS;
+  const panelWidth = width * (compactRail ? 0.33 : 0.42);
+  const panelHeight = height * (compactRail ? 0.78 : 1);
+  const panelTop = (height - panelHeight) / 2;
+  const panel = id === "left-rail" ? rect(0, panelTop, panelWidth, panelHeight) : rect(width - panelWidth, panelTop, panelWidth, panelHeight);
   const camera = id === "left-rail" ? rect(panelWidth, 0, width - panelWidth, height) : rect(0, 0, width - panelWidth, height);
   const focus = rect(panel.x, panel.y + panel.height * 0.055, panel.width, panel.height * 0.89);
   const railPosition = deck?.position ?? 0.5;
@@ -217,8 +221,15 @@ export function styleFocusBaseRect(layout: VideoStyleLayout, asset: StudioAsset,
     const bottom = Math.max(...regions.map((region) => region.y + region.height));
     return { x: left, y: top, width: right - left, height: bottom - top };
   }
-  if (asset.kind === "csv" || asset.kind === "json" || !sourceWidth || !sourceHeight) return { ...layout.focus };
-  return containStyleRect(layout.focus, sourceWidth, sourceHeight);
+  const sizeScale = layout.constrainedFocus ? 1 : asset.size === "small" ? 0.58 : 1;
+  const sizedFocus = sizeScale === 1 ? layout.focus : rect(
+    layout.focus.x + layout.focus.width * (1 - sizeScale) / 2,
+    layout.focus.y + layout.focus.height * (1 - sizeScale) / 2,
+    layout.focus.width * sizeScale,
+    layout.focus.height * sizeScale
+  );
+  if (asset.kind === "csv" || asset.kind === "json" || !sourceWidth || !sourceHeight) return { ...sizedFocus };
+  return containStyleRect(sizedFocus, sourceWidth, sourceHeight);
 }
 
 export function styleTransformBounds(layout: VideoStyleLayout, asset?: StudioAsset) {

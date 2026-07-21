@@ -3,8 +3,8 @@ import { assetsForMainDock, MAX_STYLE_ASSETS, containStyleRect, pointNearStyleDe
 import type { StudioAsset } from "../types";
 
 describe("visual video styles", () => {
-  it("keeps right-rail focus and slots inside the side window", () => {
-    const layout = videoStyleLayout("right-rail", 1920, 1080, 5);
+  it("keeps a four-item right rail end-to-end inside its side window", () => {
+    const layout = videoStyleLayout("right-rail", 1920, 1080, 4);
     expect(layout.constrainedFocus).toBe(true);
     expect(layout.camera.width).toBeCloseTo(1920 * 0.58);
     expect(layout.slots).toHaveLength(4);
@@ -20,6 +20,16 @@ describe("visual video styles", () => {
     expect(layout.focus.width).toBe(layout.panel!.width);
   });
 
+  it("shrinks both the side cards and their window when the rail becomes scrollable", () => {
+    const shortRail = videoStyleLayout("right-rail", 1920, 1080, 4, { offset: 0, windowStart: 0, total: 4 });
+    const longRail = videoStyleLayout("right-rail", 1920, 1080, 6, { offset: 0, windowStart: 0, total: 9 });
+    expect(longRail.panel!.width).toBeLessThan(shortRail.panel!.width);
+    expect(longRail.panel!.height).toBeLessThan(shortRail.panel!.height);
+    expect(longRail.slots[0].width).toBeLessThan(shortRail.slots[0].width);
+    expect(longRail.slots[0].height).toBeLessThan(shortRail.slots[0].height);
+    expect(longRail.panel!.y).toBeGreaterThan(0);
+  });
+
   it("uses medium center focus for camera-overlay styles", () => {
     for (const id of ["top-shelf", "center-shelf", "bottom-shelf", "spatial"] as const) {
       const layout = videoStyleLayout(id, 1280, 720, 4);
@@ -28,6 +38,17 @@ describe("visual video styles", () => {
       expect(layout.focus.x).toBeCloseTo(1280 * 0.16);
       expect(layout.keepSlotsWhileFocused).toBe(false);
     }
+  });
+
+  it("gives freeform assets a medium default and a visibly smaller small preset", () => {
+    const layout = videoStyleLayout("spatial", 1280, 720, 3);
+    const medium: StudioAsset = { id: "medium", name: "Medium", kind: "image", placement: "center", size: "medium", dataView: "table" };
+    const small: StudioAsset = { ...medium, id: "small", size: "small" };
+    const mediumRect = styleFocusBaseRect(layout, medium, 1600, 900);
+    const smallRect = styleFocusBaseRect(layout, small, 1600, 900);
+    expect(mediumRect.width).toBeCloseTo(layout.focus.width);
+    expect(smallRect.width).toBeLessThan(mediumRect.width);
+    expect(smallRect.x).toBeGreaterThan(mediumRect.x);
   });
 
   it("places the new horizontal media belts at center and bottom", () => {
