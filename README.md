@@ -5,6 +5,10 @@ Make gesture-controlled talking-head videos while you are still presenting—no 
 Rii-Flow turns your camera into a live recording workspace. Bring in photos and videos, arrange them into scenes, open media with hand gestures, add captions and record the finished canvas in one pass.
 
 <p align="center">
+  <a href="https://riitree.github.io/Rii-Flow/"><strong>Try Rii-Flow live →</strong></a>
+</p>
+
+<p align="center">
   <img src="docs/rii-flow-demo.gif" alt="Rii-Flow gesture-controlled recording demo" width="560" />
 </p>
 
