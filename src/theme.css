@@ -3127,7 +3127,7 @@ html[data-theme="light"] {
 
 /* Calm control-room composition. This intentionally overrides the old graph-paper studio chrome. */
 .video-style-studio .studio-grid,
-.video-style-studio .studio-grid.with-status { grid-template-columns: minmax(0, 1fr) 470px; gap: 0; background-color: #e9e5df; background-image: none; }
+.video-style-studio .studio-grid.with-status { grid-template-columns: 470px minmax(0, 1fr); gap: 0; background-color: #e9e5df; background-image: none; }
 .video-style-studio .creator-sidebar,
 .video-style-studio .creator-sidebar-header,
 .video-style-studio.app-shell[data-theme="dark"] .creator-sidebar,
@@ -3135,7 +3135,8 @@ html[data-theme="light"] {
   background-color: #fbfaf7;
   background-image: none;
 }
-.video-style-studio .creator-sidebar { border-left: 1px solid #d6d0c9; scrollbar-color: #b7aea6 transparent; }
+.video-style-studio .creator-sidebar { grid-column: 1; grid-row: 1; border-right: 1px solid #d6d0c9; border-left: 0; scrollbar-color: #b7aea6 transparent; }
+.video-style-studio .center-panel { grid-column: 2; grid-row: 1; }
 .video-style-studio .creator-sidebar-header { position: static; padding: 14px 18px 10px; border-bottom: 0; }
 .video-style-studio .creator-brand strong { font: 720 17px/1.1 Manrope, sans-serif; letter-spacing: -.025em; }
 .video-style-studio .creator-brand small { font: 650 8px/1.2 Manrope, sans-serif; letter-spacing: .12em; }
@@ -3200,7 +3201,7 @@ html[data-theme="light"] {
 
 @media (max-width: 1120px) {
   .video-style-studio .studio-grid,
-  .video-style-studio .studio-grid.with-status { grid-template-columns: minmax(0, 1fr) 380px; }
+  .video-style-studio .studio-grid.with-status { grid-template-columns: 380px minmax(0, 1fr); }
   .video-style-studio .simple-create-flow { padding-inline: 18px; }
   .video-style-studio .tutorial-launcher { margin-inline: 18px; }
 }
