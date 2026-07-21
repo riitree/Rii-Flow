@@ -159,7 +159,7 @@ export function createBlankProject(name = "Untitled project"): StudioProjectSnap
     selectedMicrophoneId: "none",
     qualityId: "720p30",
     aspectId: "landscape",
-    mirrorCamera: false,
+    mirrorCamera: true,
     cameraFrame: { ...DEFAULT_CAMERA_FRAME },
     monitorMediaAudio: false,
     timing: { holdMs: 75, cooldownMs: 550 },

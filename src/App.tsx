@@ -783,7 +783,11 @@ export default function App() {
     ? "720p30"
     : recommendedQualityForDevice(navigator.hardwareConcurrency, (navigator as Navigator & { deviceMemory?: number }).deviceMemory));
   const [aspectId, setAspectId] = useState<CanvasAspectId>("landscape");
-  const [mirrorCamera, setMirrorCamera] = useState(() => diagnostics ? false : localStorage.getItem("gesture-studio-mirror") === "true");
+  const [mirrorCamera, setMirrorCamera] = useState(() => {
+    if (diagnostics) return false;
+    const saved = localStorage.getItem("gesture-studio-mirror");
+    return saved === null ? true : saved === "true";
+  });
   const [cameraFrame, setCameraFrame] = useState<CameraFrameSettings>({ ...DEFAULT_CAMERA_FRAME });
   const [cameraFramePanelOpen, setCameraFramePanelOpen] = useState(false);
   const [outputSize, setOutputSize] = useState(() => {
@@ -1704,7 +1708,8 @@ export default function App() {
       : recommendedQualityForDevice(navigator.hardwareConcurrency, (navigator as Navigator & { deviceMemory?: number }).deviceMemory);
     // Rii-Flow records in one predictable, standard video format.
     aspectRef.current = snapshot.aspectId || "landscape";
-    mirrorCameraRef.current = Boolean(snapshot.mirrorCamera);
+    const savedMirrorPreference = diagnostics ? null : localStorage.getItem("gesture-studio-mirror");
+    mirrorCameraRef.current = diagnostics ? false : savedMirrorPreference === null ? true : savedMirrorPreference === "true";
     const restoredCameraFrame = normalizeCameraFrame(snapshot.cameraFrame);
     cameraFrameRef.current = restoredCameraFrame;
     monitorMediaAudioRef.current = Boolean(snapshot.monitorMediaAudio);
@@ -6801,17 +6806,12 @@ export default function App() {
             <button className={sidebarPage === "downloads" ? "active" : ""} onClick={() => { setSidebarPage("downloads"); setWidgetPanelOpen(false); }}><Download size={15} /> Downloads</button>
           </nav>
 
-          <section className="guided-production-flow" aria-label="Six-step video workflow">
-            <header><small>YOUR VIDEO PLAN</small><strong>Six steps. One finished video.</strong><p>Only the highlighted step is open. Finish it, then continue.</p></header>
+          {sidebarPage === "setup" && <section className="guided-production-flow" aria-label="Four-step video workflow">
+            <header><small>YOUR VIDEO PLAN</small><strong>Four steps. One finished video.</strong><p>Only the highlighted step is open. Finish it, then continue.</p></header>
 
-            <section data-tour-target="destination" className={guidedWorkflowStep === 1 ? "current" : guidedWorkflowStep > 1 ? "complete" : "locked"}>
-              <button className="workflow-step-heading" onClick={() => setGuidedWorkflowStep(1)}><b>1</b><span><strong>Choose recording destination</strong><small>{recordingsDirectory?.name ?? "Save takes in this session"}</small></span>{guidedWorkflowStep > 1 && <em><Check size={13} /> Done</em>}</button>
-              {guidedWorkflowStep === 1 && <div className="workflow-step-body workflow-destination"><div><FolderOpen size={16} /><span><strong>{recordingsDirectory?.name ?? "Where should finished videos go?"}</strong><small>{recordingsDirectory ? "Every take saves to this folder" : folderPermission === "unsupported" ? "Folder selection needs Chrome or Edge" : "Choose a folder, or keep takes in this browser session"}</small></span></div><button className="workflow-primary" disabled={isRecording || isFinalizing || folderPermission === "unsupported"} onClick={() => void changeRecordingsFolder()}><FolderOpen size={16} /> {recordingsDirectory ? "Change folder" : "Choose folder"}</button><button className="workflow-continue" onClick={() => setGuidedWorkflowStep(2)}>{recordingsDirectory ? "Use this folder" : "Use session memory"}<ArrowRight size={14} /></button></div>}
-            </section>
-
-            <section className={guidedWorkflowStep === 2 ? "current" : guidedWorkflowStep > 2 ? "complete" : "locked"}>
-              <button className="workflow-step-heading" disabled={guidedWorkflowStep < 2} onClick={() => setGuidedWorkflowStep(2)}><b>2</b><span><strong>Import media</strong><small>{assets.filter((asset) => asset.kind !== "text").length ? `${assets.filter((asset) => asset.kind !== "text").length} files ready` : "Add what you want to show"}</small></span>{guidedWorkflowStep > 2 && <em><Check size={13} /> Done</em>}</button>
-              {guidedWorkflowStep === 2 && <div className="workflow-step-body">
+            <section className={guidedWorkflowStep === 1 ? "current" : guidedWorkflowStep > 1 ? "complete" : "locked"}>
+              <button className="workflow-step-heading" onClick={() => setGuidedWorkflowStep(1)}><b>1</b><span><strong>Import media</strong><small>{assets.filter((asset) => asset.kind !== "text").length ? `${assets.filter((asset) => asset.kind !== "text").length} files ready` : "Add what you want to show"}</small></span>{guidedWorkflowStep > 1 && <em><Check size={13} /> Done</em>}</button>
+              {guidedWorkflowStep === 1 && <div className="workflow-step-body">
                 <button className="workflow-primary" onClick={() => fileInputRef.current?.click()}><Upload size={16} /> {assets.some((asset) => asset.kind !== "text") ? "Import from another folder" : "Choose photos or videos"}</button>
                 {assets.some((asset) => asset.kind !== "text") && <p className="workflow-gesture-note"><Hand size={14} /><span><strong>Direct gestures are optional.</strong> Pointing, open palm, thumbs-up and fists remain reserved for universal controls.</span></p>}
                 <div className="workflow-media-assignment-list">
@@ -6827,36 +6827,30 @@ export default function App() {
                     </div>
                   </div>)}
                 </div>
-                <button className="workflow-continue" disabled={!assets.some((asset) => asset.kind !== "text")} onClick={() => setGuidedWorkflowStep(3)}>Media ready—continue <ArrowRight size={14} /></button>
+                <button className="workflow-continue" disabled={!assets.some((asset) => asset.kind !== "text")} onClick={() => setGuidedWorkflowStep(2)}>Media ready—continue <ArrowRight size={14} /></button>
               </div>}
             </section>
 
-            <section data-tour-target="groups" className={guidedWorkflowStep === 3 ? "current" : guidedWorkflowStep > 3 ? "complete" : "locked"}>
-              <button className="workflow-step-heading" disabled={guidedWorkflowStep < 3} onClick={() => setGuidedWorkflowStep(3)}><b>3</b><span><strong>Make groups and widgets</strong><small>{scenes.length ? `${scenes.length} scene${scenes.length === 1 ? "" : "s"} created` : "Group media that belongs together"}</small></span>{guidedWorkflowStep > 3 && <em><Check size={13} /> Done</em>}</button>
-              {guidedWorkflowStep === 3 && <div className="workflow-step-body"><button className="workflow-primary" disabled={assets.filter((asset) => asset.kind !== "text").length < 2} onClick={() => { setSceneBuilderOpen(true); window.setTimeout(() => document.querySelector(".scene-creator-simple")?.scrollIntoView({ behavior: "smooth", block: "start" }), 80); }}><LayoutGrid size={16} /> {scenes.length ? "Make another scene" : "Make a scene"}</button>{scenes.map((scene) => { const assigned = widgets.some((widget) => widget.kind === "orbit" && widget.sceneIds?.includes(scene.id)); const layerId = sceneLayerId(scene.id); return <span className="workflow-scene" key={scene.id}><LayoutGrid size={14} /><strong>{shortName(scene.name, 19)}</strong><span className="workflow-scene-actions"><label><Hand size={12} /><select data-testid={`workflow-scene-gesture-${scene.id}`} aria-label={`Hand gesture for scene ${scene.name}`} value={scene.gesture ?? ""} onChange={(event) => assignSceneGesture(scene.id, (event.target.value || undefined) as GestureId | undefined)}><option value="">No gesture</option>{STANDALONE_ASSET_GESTURES.map((gesture) => <option key={gesture.id} value={gesture.id}>{gestureOptionLabel(gesture.id, layerId, scene.gesture)}</option>)}</select><ChevronDown size={11} /></label><button className={assigned ? "assigned" : ""} onClick={() => { createCanvasWidget("orbit", { x: .5, y: .5 }, scene.id); setSidebarPage("widgets"); setWidgetPanelOpen(true); setWidgetPanelMode("settings"); }}>{assigned ? <><Settings2 size={12} /> Widget</> : <><Plus size={12} /> Widget</>}</button></span></span>; })}<p className="workflow-gesture-note"><Hand size={14} /><span><strong>A scene gesture reveals the complete composition.</strong> Two, three, four fingers and one finger on both hands are available; pointing and thumbs-up stay universal.</span></p><button className="workflow-continue" onClick={() => setGuidedWorkflowStep(4)}>{scenes.length ? "Groups are ready" : "Skip groups"}<ArrowRight size={14} /></button></div>}
+            <section data-tour-target="groups" className={guidedWorkflowStep === 2 ? "current" : guidedWorkflowStep > 2 ? "complete" : "locked"}>
+              <button className="workflow-step-heading" disabled={guidedWorkflowStep < 2} onClick={() => setGuidedWorkflowStep(2)}><b>2</b><span><strong>Make groups</strong><small>{scenes.length ? `${scenes.length} scene${scenes.length === 1 ? "" : "s"} created` : "Group media that belongs together"}</small></span>{guidedWorkflowStep > 2 && <em><Check size={13} /> Done</em>}</button>
+              {guidedWorkflowStep === 2 && <div className="workflow-step-body"><button className="workflow-primary" disabled={assets.filter((asset) => asset.kind !== "text").length < 2} onClick={() => { setSceneBuilderOpen(true); window.setTimeout(() => document.querySelector(".scene-creator-simple")?.scrollIntoView({ behavior: "smooth", block: "start" }), 80); }}><LayoutGrid size={16} /> {scenes.length ? "Make another scene" : "Make a scene"}</button>{scenes.map((scene) => { const layerId = sceneLayerId(scene.id); return <span className="workflow-scene" key={scene.id}><LayoutGrid size={14} /><strong>{shortName(scene.name, 19)}</strong><span className="workflow-scene-actions"><label><Hand size={12} /><select data-testid={`workflow-scene-gesture-${scene.id}`} aria-label={`Hand gesture for scene ${scene.name}`} value={scene.gesture ?? ""} onChange={(event) => assignSceneGesture(scene.id, (event.target.value || undefined) as GestureId | undefined)}><option value="">No gesture</option>{STANDALONE_ASSET_GESTURES.map((gesture) => <option key={gesture.id} value={gesture.id}>{gestureOptionLabel(gesture.id, layerId, scene.gesture)}</option>)}</select><ChevronDown size={11} /></label></span></span>; })}<p className="workflow-gesture-note"><Hand size={14} /><span><strong>A scene gesture reveals the complete composition.</strong> Widgets stay in the separate advanced Widgets tab.</span></p><button className="workflow-continue" onClick={() => setGuidedWorkflowStep(3)}>{scenes.length ? "Groups are ready" : "Skip groups"}<ArrowRight size={14} /></button></div>}
             </section>
 
-            <section className={guidedWorkflowStep === 4 ? "current" : guidedWorkflowStep > 4 ? "complete" : "locked"}>
-              <button className="workflow-step-heading" disabled={guidedWorkflowStep < 4} onClick={() => setGuidedWorkflowStep(4)}><b>4</b><span><strong>Choose deck layout</strong><small>Pick how media waits on screen</small></span>{guidedWorkflowStep > 4 && <em><Check size={13} /> Done</em>}</button>
-              {guidedWorkflowStep === 4 && <div className="workflow-decks"><button onClick={() => { selectVideoStyle("top-shelf"); setGuidedWorkflowStep(5); }}><i className="look-preview clean"><b /><b /><b /></i><strong>Top deck</strong></button><button onClick={() => { selectVideoStyle("right-rail"); setGuidedWorkflowStep(5); }}><i className="look-preview side"><b /><b /></i><strong>Side deck</strong></button><button onClick={() => { selectVideoStyle("spatial"); setGuidedWorkflowStep(5); }}><i className="look-preview free"><b /><b /><b /></i><strong>Freeform</strong></button></div>}
+            <section className={guidedWorkflowStep === 3 ? "current" : guidedWorkflowStep > 3 ? "complete" : "locked"}>
+              <button className="workflow-step-heading" disabled={guidedWorkflowStep < 3} onClick={() => setGuidedWorkflowStep(3)}><b>3</b><span><strong>Choose deck layout</strong><small>Pick how media waits on screen</small></span>{guidedWorkflowStep > 3 && <em><Check size={13} /> Done</em>}</button>
+              {guidedWorkflowStep === 3 && <div className="workflow-decks"><button onClick={() => { selectVideoStyle("top-shelf"); setGuidedWorkflowStep(4); }}><i className="look-preview clean"><b /><b /><b /></i><strong>Top deck</strong></button><button onClick={() => { selectVideoStyle("right-rail"); setGuidedWorkflowStep(4); }}><i className="look-preview side"><b /><b /></i><strong>Side deck</strong></button><button onClick={() => { selectVideoStyle("spatial"); setGuidedWorkflowStep(4); }}><i className="look-preview free"><b /><b /><b /></i><strong>Freeform</strong></button></div>}
             </section>
 
-            <section data-tour-target="embellishments" className={guidedWorkflowStep === 5 ? "current" : guidedWorkflowStep > 5 ? "complete" : "locked"}>
-              <button className="workflow-step-heading" disabled={guidedWorkflowStep < 5} onClick={() => setGuidedWorkflowStep(5)}><b>5</b><span><strong>Choose embellishments</strong><small>{widgets.filter((widget) => widget.kind !== "live").length ? `${widgets.filter((widget) => widget.kind !== "live").length} added` : "Music, lists and stickers"}</small></span>{guidedWorkflowStep > 5 && <em><Check size={13} /> Done</em>}</button>
-              {guidedWorkflowStep === 5 && <div className="workflow-embellishments"><button onClick={() => { createCanvasWidget("vinyl"); setSidebarPage("widgets"); }}><Music2 size={17} /><strong>Music</strong></button><button onClick={() => { createCanvasWidget("bullets"); setSidebarPage("widgets"); }}><ListVideo size={17} /><strong>List</strong></button><button onClick={() => { createCanvasWidget("sticker"); setSidebarPage("widgets"); }}><Sparkles size={17} /><strong>Sticker</strong></button><button className="workflow-continue" onClick={() => setGuidedWorkflowStep(6)}>{widgets.some((widget) => widget.kind !== "live") ? "Embellishments ready" : "Keep it clean"}<ArrowRight size={14} /></button></div>}
-            </section>
-
-            <section className={guidedWorkflowStep === 6 ? "current" : "locked"}>
-              <button className="workflow-step-heading" disabled={guidedWorkflowStep < 6} onClick={() => setGuidedWorkflowStep(6)}><b>6</b><span><strong>Make the video</strong><small>{studioReady ? "Camera ready—press Record" : "Camera starts automatically"}</small></span>{studioReady && <em><Check size={13} /> Ready</em>}</button>
-              {guidedWorkflowStep === 6 && <div className="simple-record-location"><ArrowDown size={16} /><span><strong>{studioReady ? "Press Record below the canvas" : "Camera and gestures are starting automatically"}</strong><small>Talk naturally and use your gestures</small></span></div>}
+            <section className={guidedWorkflowStep === 4 ? "current" : "locked"}>
+              <button className="workflow-step-heading" disabled={guidedWorkflowStep < 4} onClick={() => setGuidedWorkflowStep(4)}><b>4</b><span><strong>Make the video</strong><small>{studioReady ? "Camera ready—press Record" : "Camera starts automatically"}</small></span>{studioReady && <em><Check size={13} /> Ready</em>}</button>
+              {guidedWorkflowStep === 4 && <div className="simple-record-location"><ArrowDown size={16} /><span><strong>{studioReady ? "Press Record below the canvas" : "Camera and gestures are starting automatically"}</strong><small>Talk naturally and use your gestures</small></span></div>}
             </section>
 
             <section className="workflow-workspace-tools" aria-label="Workspace tools"><label><span><strong>Move dock</strong><small>Slide it to a comfortable position</small></span><input type="range" min={videoStyleId.includes("shelf") ? "0.04" : "0"} max={videoStyleId.includes("shelf") ? "0.8" : "1"} step="0.01" value={deckPlacement} disabled={videoStyleId === "spatial"} onChange={(event) => setDeckPlacement(Number(event.target.value))} /></label><div><span><strong>Workspace editor</strong><small>Edit scenes or clear the project</small></span><button onClick={() => setSceneBuilderOpen(true)}><LayoutGrid size={14} /> Open editor</button><button className="danger" disabled={isRecording || isFinalizing || (!assets.length && !scenes.length && !widgets.length)} onClick={clearWorkspace}><Trash2 size={14} /> Clear</button></div></section>
-          </section>
+          </section>}
 
           {simpleExtrasOpen && sidebarPage === "setup" && <section className="manual-settings-panel" aria-label="Manual controls">
             <header><span><small>OPTIONAL</small><strong>Manual controls</strong><p>Nothing here is required to make a video.</p></span><button aria-label="Close manual controls" onClick={() => setSimpleExtrasOpen(false)}><X size={17} /></button></header>
-            <section><header><HardDrive size={16} /><span><strong>Recording folder</strong><small>{recordingsDirectory?.name ?? "Session memory"}</small></span></header><button className="manual-wide-action" disabled={isRecording || isFinalizing} onClick={() => void changeRecordingsFolder()}><FolderOpen size={15} /> {recordingsDirectory ? "Change folder" : "Choose folder"}</button></section>
             <section><header><Monitor size={16} /><span><strong>Video output</strong><small>Standard widescreen recording</small></span></header><div className="manual-field-grid"><label><span>Quality</span><select value={qualityId} disabled={isRecording} onChange={(event) => void handleQualityChange(event.target.value as QualityId)}>{QUALITY_PRESETS.map((preset) => <option key={preset.id} value={preset.id}>{preset.label}</option>)}</select></label><div className="manual-fixed-ratio"><span>Canvas</span><strong>16:9 widescreen</strong></div></div><button className={`manual-toggle ${mirrorCamera ? "active" : ""}`} onClick={() => setMirrorCamera((value) => !value)}><FlipHorizontal2 size={15} /><span><strong>Mirror camera</strong><small>{mirrorCamera ? "On" : "Off"}</small></span><i /></button></section>
             <section><header><Layers3 size={16} /><span><strong>Deck behavior</strong><small>How the deck appears while presenting</small></span></header><div className="manual-choice-row">{ASSET_DECK_MODES.map((mode) => <button key={mode.id} className={assetDeckMode === mode.id ? "active" : ""} onClick={() => chooseAssetDeckMode(mode.id)}>{mode.id === "always" ? <Eye size={14} /> : <Hand size={14} />}{mode.label}</button>)}</div>{videoStyleId !== "spatial" && <label className="manual-range"><span>Deck position</span><input type="range" min={videoStyleId.includes("shelf") ? "0.04" : "0"} max={videoStyleId.includes("shelf") ? "0.8" : "1"} step="0.01" value={deckPlacement} onChange={(event) => setDeckPlacement(Number(event.target.value))} /></label>}</section>
             <section><header><Settings2 size={16} /><span><strong>Workspace</strong><small>Project-level actions</small></span></header><div className="manual-choice-row"><button onClick={() => setSceneBuilderOpen(true)}><LayoutGrid size={14} /> Edit scenes</button><button className="danger" disabled={isRecording || isFinalizing || (!assets.length && !scenes.length && !widgets.length)} onClick={clearWorkspace}><Trash2 size={14} /> Clear workspace</button></div></section>
@@ -6885,15 +6879,7 @@ export default function App() {
               <div className="simple-record-location"><ArrowDown size={16} /><span><strong>{isRecording ? "Stop when you’re finished" : studioReady ? "Press Record below the canvas" : "Press Start Studio below the canvas"}</strong><small>That is the only recording control you need</small></span></div>
             </section>
 
-            <button className={`simple-more-toggle ${simpleExtrasOpen ? "active" : ""}`} onClick={() => setSimpleExtrasOpen((open) => !open)}><Settings2 size={16} /><span><strong>{simpleExtrasOpen ? "Hide extra options" : "More options"}</strong><small>Folder, detailed layouts, scenes and controls</small></span><ChevronDown size={15} /></button>
-          </section>
-
-          <section className="creator-recording-destination" data-tour-target="save" aria-label="Recording destination">
-            <div className={`workspace-destination ${folderPermission === "granted" ? "ready" : "warning"}`}>
-              <span><HardDrive size={18} /></span>
-              <div><small>Recording destination</small><strong>{recordingsDirectory?.name ?? "Session memory"}</strong><em>{folderPermission === "granted" ? "Every take saves here as MP4" : recordingsDirectory ? "Reconnect or choose another folder" : folderPermission === "unsupported" ? "Folder selection needs Chrome or Edge" : "Choose where finished recordings are saved"}</em></div>
-              <button data-testid="recording-folder-button" disabled={isRecording || isFinalizing} aria-label={recordingsDirectory ? "Change recording folder" : "Choose recording folder"} title={recordingsDirectory ? "Change recording folder" : "Choose recording folder"} onClick={() => void changeRecordingsFolder()}><FolderOpen size={16} /><span>{recordingsDirectory ? "Change" : "Choose folder"}</span></button>
-            </div>
+            <button className={`simple-more-toggle ${simpleExtrasOpen ? "active" : ""}`} onClick={() => setSimpleExtrasOpen((open) => !open)}><Settings2 size={16} /><span><strong>{simpleExtrasOpen ? "Hide extra options" : "More options"}</strong><small>Detailed layouts, scenes and controls</small></span><ChevronDown size={15} /></button>
           </section>
 
           <button className="tutorial-launcher" type="button" onClick={() => { setTutorialStep(0); setTutorialOpen(true); }}><span><HelpCircle size={19} /></span><span><strong>New here?</strong><small>Take the 2-minute guided tour</small></span><ArrowRight size={16} /></button>
@@ -7033,6 +7019,14 @@ export default function App() {
             <strong data-testid="active-camera">{activeCameraLabel}</strong>
             <strong data-testid="canvas-resolution">{outputSize.width} × {outputSize.height}</strong>
           </div>
+
+          {sidebarPage === "downloads" && <section className="creator-recording-destination" data-tour-target="save" aria-label="Recording destination">
+            <div className={`workspace-destination ${folderPermission === "granted" ? "ready" : "warning"}`}>
+              <span><HardDrive size={18} /></span>
+              <div><small>Recording destination</small><strong>{recordingsDirectory?.name ?? "Session memory"}</strong><em>{folderPermission === "granted" ? "Every take saves here as MP4" : recordingsDirectory ? "Reconnect or choose another folder" : folderPermission === "unsupported" ? "Folder selection needs Chrome or Edge" : "Choose where finished recordings are saved"}</em></div>
+              <button data-testid="recording-folder-button" disabled={isRecording || isFinalizing} aria-label={recordingsDirectory ? "Change recording folder" : "Choose recording folder"} title={recordingsDirectory ? "Change recording folder" : "Choose recording folder"} onClick={() => void changeRecordingsFolder()}><FolderOpen size={16} /><span>{recordingsDirectory ? "Change" : "Choose folder"}</span></button>
+            </div>
+          </section>}
 
           <section className="takes-inline-panel" aria-label="Take library">
             <div className="takes-inline-heading"><span><Download size={19} /><strong>Downloads & edits</strong></span><b data-testid="recording-count">{recordings.length}</b></div>
