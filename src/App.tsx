@@ -6823,7 +6823,17 @@ export default function App() {
                       <label><span>Spawn animation</span><select aria-label={`Spawn animation for ${asset.name}`} value={asset.entranceAnimation ?? "fade"} onChange={(event) => updateAsset(asset.id, { entranceAnimation: event.target.value as EntranceAnimation })}>{ENTRANCE_ANIMATIONS.map((animation) => <option key={animation.id} value={animation.id}>{animation.label}</option>)}</select></label>
                       <label><span>Spawn sound</span><select aria-label={`Spawn sound for ${asset.name}`} value={asset.cueSound ?? "none"} onChange={(event) => updateAsset(asset.id, { cueSound: event.target.value as CueSound })}>{CUE_SOUNDS.map((sound) => <option key={sound.id} value={sound.id}>{sound.label}</option>)}</select></label>
                       <label><span>Spawn size</span><select aria-label={`Spawn size for ${asset.name}`} value={asset.size} onChange={(event) => updateAsset(asset.id, { size: event.target.value as AssetSize })}>{ASSET_SIZES.map((size) => <option key={size.id} value={size.id}>{size.label}</option>)}</select></label>
-                      <label><span>Direct gesture</span><select aria-label={`Direct gesture for ${asset.name}`} value={asset.gesture ?? ""} onChange={(event) => assignGesture(asset.id, (event.target.value || undefined) as GestureId | undefined)}><option value="">No direct gesture</option>{STANDALONE_ASSET_GESTURES.map((gesture) => <option key={gesture.id} value={gesture.id}>{gestureOptionLabel(gesture.id, asset.id, asset.gesture)}</option>)}</select></label>
+                      <div className="workflow-gesture-picker" role="group" aria-label={`Direct gesture for ${asset.name}`}>
+                        <span className="workflow-gesture-picker-title"><Hand size={14} /><strong>Gesture</strong><small>Optional</small></span>
+                        <div>
+                          <button type="button" className={!asset.gesture ? "active" : ""} aria-label={`No direct gesture for ${asset.name}`} aria-pressed={!asset.gesture} onClick={() => assignGesture(asset.id, undefined)}><i className="gesture-choice-none">—</i><span>None</span>{!asset.gesture && <Check size={12} />}</button>
+                          {STANDALONE_ASSET_GESTURES.map((gesture) => {
+                            const visual = gesture.id === "double-one" ? "1 + 1" : gesture.id === "two" ? "2" : gesture.id === "three" ? "3" : "4";
+                            const selected = asset.gesture === gesture.id;
+                            return <button type="button" key={gesture.id} className={selected ? "active" : ""} title={gestureOptionLabel(gesture.id, asset.id, asset.gesture)} aria-label={`${gesture.label} for ${asset.name}`} aria-pressed={selected} onClick={() => assignGesture(asset.id, gesture.id)}><i className={gesture.id === "double-one" ? "gesture-choice-hands double" : "gesture-choice-hands"}><Hand size={20} /><b>{visual}</b></i><span>{gesture.id === "double-one" ? "Both" : visual}</span>{selected && <Check size={12} />}</button>;
+                          })}
+                        </div>
+                      </div>
                     </div>
                   </div>)}
                 </div>
