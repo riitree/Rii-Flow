@@ -1,12 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
-import { AUDIO_MIX_LEVELS, connectScreenAudio, cueSoundDuration, cueSoundNotes, mixedAudioStream, readMicrophoneLevel, setMediaMonitoring, setVideoAudioEnabled, type StudioAudioMixer } from "./audio";
+import { AUDIO_MIX_LEVELS, connectScreenAudio, cueSoundDuration, cueSoundNotes, mixedAudioStream, readMicrophoneLevel, recordingRouteGain, setMediaMonitoring, setVideoAudioEnabled, type StudioAudioMixer } from "./audio";
 
 function fakeMixer() {
   const route = {
     source: { disconnect: vi.fn() },
     recordingGain: { gain: { value: 0 } },
     monitorGain: { gain: { value: 0 } },
-    enabled: false
+    enabled: false,
+    monitorAlways: false
   };
   const destinationStream = { id: "mixed" } as unknown as MediaStream;
   const mixer = {
@@ -27,7 +28,7 @@ describe("studio audio mixing", () => {
   it("keeps video audio muted until the clip is explicitly enabled", () => {
     const { mixer, route } = fakeMixer();
     setVideoAudioEnabled(mixer, "clip", true);
-    expect(route.recordingGain.gain.value).toBe(1);
+    expect(route.recordingGain.gain.value).toBe(AUDIO_MIX_LEVELS.mediaWithMicrophone);
     expect(route.monitorGain.gain.value).toBe(0);
     setMediaMonitoring(mixer, true);
     expect(route.monitorGain.gain.value).toBe(1);
@@ -60,6 +61,24 @@ describe("studio audio mixing", () => {
   it("keeps recorded cues behind speech with master headroom", () => {
     expect(AUDIO_MIX_LEVELS.recordingHeadroom).toBeLessThan(1);
     expect(AUDIO_MIX_LEVELS.cueRecording).toBeLessThan(AUDIO_MIX_LEVELS.recordingHeadroom / 2);
+  });
+
+  it("keeps vinyl music below the main microphone without clipping the sum", () => {
+    const musicGain = recordingRouteGain(true, true);
+    expect(musicGain).toBe(AUDIO_MIX_LEVELS.backgroundWithMicrophone);
+    expect(musicGain).toBeLessThan(recordingRouteGain(true, false));
+    expect(recordingRouteGain(false, true)).toBe(1);
+    expect(AUDIO_MIX_LEVELS.recordingHeadroom * (1 + musicGain)).toBeLessThan(1);
+  });
+
+  it("does not send vinyl to speakers beside a live mic unless monitoring is explicitly enabled", () => {
+    const { mixer, route } = fakeMixer();
+    route.monitorAlways = true;
+    setVideoAudioEnabled(mixer, "clip", true);
+    expect(route.recordingGain.gain.value).toBe(AUDIO_MIX_LEVELS.backgroundWithMicrophone);
+    expect(route.monitorGain.gain.value).toBe(0);
+    setMediaMonitoring(mixer, true);
+    expect(route.monitorGain.gain.value).toBe(1);
   });
 
   it("adds shared-screen audio only to the recording mix", () => {

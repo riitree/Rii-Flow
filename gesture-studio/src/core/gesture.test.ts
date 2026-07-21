@@ -51,8 +51,12 @@ describe("gesture recognition rules", () => {
   });
 
   it("adds deliberate two-hand combinations without confusing their single-hand forms", () => {
+    const point = resolveGesture("Pointing_Up", 0.94, landmarks([0]));
     const victory = resolveGesture("Victory", 0.94, landmarks([0, 1]));
     const thumb = resolveGesture("Thumb_Up", 0.93, landmarks([], true));
+    const fist = resolveGesture("Closed_Fist", 0.95, landmarks([]));
+    expect(resolveCompositeGesture([fist, fist])?.gesture).toBe("double-fist");
+    expect(resolveCompositeGesture([point, point])?.gesture).toBe("double-one");
     expect(resolveCompositeGesture([victory, victory])?.gesture).toBe("double-two");
     expect(resolveCompositeGesture([thumb, thumb])?.gesture).toBe("double-thumb");
     expect(resolveCompositeGesture([thumb, victory])?.gesture).toBe("thumb-two");

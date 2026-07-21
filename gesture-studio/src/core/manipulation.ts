@@ -112,6 +112,13 @@ export function mapControlPointForMirror(point: ControlPoint, mirrored: boolean)
   return mirrored ? { x: 1 - point.x, y: point.y } : point;
 }
 
+/** Calm around a resting hand, but catches up rapidly once movement is clearly
+ * intentional. A fixed filter either jitters at rest or feels rubber-banded. */
+export function manipulationFollowAlpha(current: AssetTransform, target: AssetTransform, scaling: boolean) {
+  const travel = Math.hypot(target.x - current.x, target.y - current.y) + Math.abs(target.scale - current.scale) * 0.18;
+  return Math.min(0.93, (scaling ? 0.7 : 0.64) + travel * 3.2);
+}
+
 /** Maps the detected palm centre to where that palm is visibly drawn on the
  * stage. This keeps direct-hit selection accurate when the camera has a frame. */
 export function mapControlPointToStageViewport(
@@ -248,9 +255,22 @@ export class ManipulationTracker {
         ? "drag"
         : null;
     if (!candidate) {
+      const arming = this.mode === "arming-drag" || this.mode === "arming-scale";
+      if (arming && this.candidate) {
+        if (this.missingSince === null) this.missingSince = now;
+        if (now - this.missingSince < this.settings.releaseGraceMs) {
+          return {
+            mode: this.mode,
+            progress: Math.min(1, (now - this.candidateSince) / this.settings.armMs),
+            suppressActivation: true
+          };
+        }
+      }
       this.reset();
       return { mode: "idle", progress: 0, suppressActivation: eligible.length > 0 };
     }
+
+    this.missingSince = null;
 
     if (this.candidate !== candidate) {
       this.candidate = candidate;

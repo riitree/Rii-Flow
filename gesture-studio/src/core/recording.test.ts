@@ -17,7 +17,7 @@ describe("composed recording", () => {
       mimeType: "video/mp4",
       videoBitsPerSecond: 80_000_000,
       audioBitsPerSecond: 320_000,
-      videoKeyFrameIntervalDuration: 1_000
+      videoKeyFrameIntervalDuration: 2_000
     });
   });
 

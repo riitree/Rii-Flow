@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Landmark } from "./gesture";
-import { ManipulationTracker, mapControlPointForMirror, mapControlPointToStageViewport, mapPointForMovementReach, palmControlPoint, PalmSignalTracker, type ControlPoint } from "./manipulation";
+import { ManipulationTracker, manipulationFollowAlpha, mapControlPointForMirror, mapControlPointToStageViewport, mapPointForMovementReach, palmControlPoint, PalmSignalTracker, type ControlPoint } from "./manipulation";
 
 const point = (x: number, y: number): ControlPoint => ({ x, y });
 const target = { x: 0.2, y: 0.2, width: 0.6, height: 0.6 };
@@ -18,6 +18,18 @@ function openPalmLandmarks(): Landmark[] {
 }
 
 describe("open-palm manipulation", () => {
+  it("keeps a quick grab armed through one short missed detection frame", () => {
+    const tracker = new ManipulationTracker({ armMs: 140, releaseGraceMs: 180, hitPadding: 0.05 });
+    tracker.update([point(0.5, 0.5)], 0, target, transform);
+    expect(tracker.update([], 70, target, transform).mode).toBe("arming-drag");
+    expect(tracker.update([point(0.5, 0.5)], 145, target, transform).mode).toBe("dragging");
+  });
+
+  it("uses calm fine control and fast catch-up for deliberate movement", () => {
+    const current = { x: 0.5, y: 0.5, scale: 1 };
+    expect(manipulationFollowAlpha(current, { x: 0.502, y: 0.5, scale: 1 }, false)).toBeLessThan(0.7);
+    expect(manipulationFollowAlpha(current, { x: 0.65, y: 0.5, scale: 1 }, false)).toBeGreaterThan(0.9);
+  });
   it("uses the stable center of the palm", () => {
     expect(palmControlPoint(openPalmLandmarks())).toMatchObject({ x: 0.5 });
   });

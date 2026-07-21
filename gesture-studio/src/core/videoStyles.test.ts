@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { assetsForMainDock, MAX_STYLE_ASSETS, containStyleRect, pointNearStyleDeck, styleAssetAtPoint, styleAssetsWithFocus, styleUsesUniformPreviews, videoStyleLayout } from "./videoStyles";
+import { assetsForMainDock, MAX_STYLE_ASSETS, containStyleRect, pointNearStyleDeck, retainedStyleTransform, styleAssetAtPoint, styleAssetsWithFocus, styleFocusBaseRect, styleTransformBounds, styleUsesUniformPreviews, videoStyleLayout } from "./videoStyles";
 import type { StudioAsset } from "../types";
 
 describe("visual video styles", () => {
@@ -128,6 +128,18 @@ describe("visual video styles", () => {
     expect(output.width / output.height).toBeCloseTo(16 / 9);
     expect(output.x).toBe(100);
     expect(output.y).toBeGreaterThan(50);
+  });
+
+  it("makes full-size video truly cover the entire recording canvas", () => {
+    const layout = videoStyleLayout("right-rail", 1280, 720, 3);
+    const video: StudioAsset = { id: "clip", name: "Clip", kind: "video", placement: "center", size: "full", dataView: "table" };
+    expect(styleFocusBaseRect(layout, video, 1920, 1080)).toEqual({ x: 0, y: 0, width: 1280, height: 720 });
+    expect(styleTransformBounds(layout, video)).toBeUndefined();
+  });
+
+  it("retains a presenter's position and size when an asset is revealed again", () => {
+    const authored = { x: 0.73, y: 0.31, scale: 1.85 };
+    expect(retainedStyleTransform(authored, { x: 100, y: 80, width: 400, height: 240 }, 1280, 720)).toBe(authored);
   });
 
   it("maps a point directly to the visible template slot", () => {

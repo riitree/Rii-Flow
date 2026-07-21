@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { activeWordAnimationAt, buildWordAnimationCues, VoiceEmphasisTracker } from "./wordCues";
+import { activeWordAnimationAt, buildWordAnimationCues, retimeWordAnimationCue, VoiceEmphasisTracker } from "./wordCues";
 
 const segments = [
   { id: "one", text: "Today we launch something incredible", start: 0, end: 3 },
@@ -8,6 +8,10 @@ const segments = [
 ];
 
 describe("word animation cues", () => {
+  it("clamps manually edited punch-line timestamps to the take", () => {
+    const cue = { id: "punch", text: "Launch", start: 1, end: 1.8, animation: "punch" as const, sourceSegmentId: "one" };
+    expect(retimeWordAnimationCue(cue, 4.9, 8, 5)).toMatchObject({ start: 4.9, end: 5 });
+  });
   it("pairs microphone emphasis with a meaningful nearby word", () => {
     const cues = buildWordAnimationCues(segments, [{ id: "v1", time: 1.3, strength: 0.9 }], 10);
     expect(cues).toHaveLength(1);

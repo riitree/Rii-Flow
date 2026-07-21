@@ -6,6 +6,8 @@ export const GESTURES = [
   { id: "thumb", label: "Thumb up", source: "Thumb_Up" },
   { id: "thumb-down", label: "Thumb down", source: "Thumb_Down" },
   { id: "love", label: "Love sign", source: "ILoveYou" },
+  { id: "double-fist", label: "Two fists — hide everything", source: "Closed_Fist + Closed_Fist" },
+  { id: "double-one", label: "One finger on both hands", source: "Pointing_Up + Pointing_Up" },
   { id: "double-two", label: "Two peace signs", source: "Victory + Victory" },
   { id: "double-thumb", label: "Two thumbs up", source: "Thumb_Up + Thumb_Up" },
   { id: "thumb-two", label: "Thumb + peace", source: "Thumb_Up + Victory" }

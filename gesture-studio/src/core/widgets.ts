@@ -104,6 +104,11 @@ export function pointNearOrbit(widget: CanvasWidget, point: { x: number; y: numb
   return rects.some((rect) => point.x >= rect.x - padding && point.x <= rect.x + rect.width + padding && point.y >= rect.y - padding && point.y <= rect.y + rect.height + padding);
 }
 
+/** Requires a deliberate retreat before an orbit can accept another point. */
+export function orbitPointRearmed(origin: { x: number; y: number }, point: { x: number; y: number }, width: number, height: number) {
+  return Math.hypot(point.x - origin.x, point.y - origin.y) >= Math.min(width, height) * .12;
+}
+
 export function widgetAtPoint(widgets: readonly CanvasWidget[], point: { x: number; y: number }, width: number, height: number) {
   return [...widgets].reverse().find((widget) => {
     if (!widget.visible) return false;

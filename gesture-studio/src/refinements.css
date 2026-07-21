@@ -1252,11 +1252,15 @@
 .caption-background-toggle { align-content: space-between; }
 .caption-background-toggle input { width: 20px; height: 20px; accent-color: #2563eb; }
 .caption-segment-list { min-height: 150px; max-height: 300px; display: grid; gap: 7px; overflow-y: auto; padding-right: 4px; }
-.caption-segment-list label { display: grid; grid-template-columns: 48px minmax(0, 1fr); align-items: start; gap: 7px; padding: 3px; border: 1px solid transparent; border-radius: 8px; }
-.caption-segment-list label.active { border-color: #b9cdf7; background: #f1f5ff; }
-.caption-segment-list label > button { min-height: 32px; padding: 0 5px; border: 0; color: #6c665e; background: transparent; font: 750 11px/1 ui-monospace, SFMono-Regular, Consolas, monospace; }
-.caption-segment-list label > button:hover { color: #1d4ed8; background: #e6edff; }
+.caption-segment-editor { display: grid; grid-template-columns: 72px minmax(0, 1fr); align-items: start; gap: 8px; padding: 8px; border: 1px solid #d8d2c8; border-radius: 9px; background: #fff; }
+.caption-segment-editor.active { border-color: #8daff4; background: #f1f5ff; box-shadow: 0 0 0 1px rgba(62, 102, 190, .12); }
+.caption-segment-editor > button { min-height: 34px; display: inline-flex; align-items: center; justify-content: center; gap: 4px; padding: 0 6px; border: 1px solid #d4cec5; color: #403b35; background: #f8f5f0; font: 700 10px/1 system-ui; }
+.caption-segment-editor > div { min-width: 0; display: grid; gap: 7px; }
 .caption-segment-list textarea { width: 100%; min-height: 50px; resize: vertical; padding: 8px; border: 1px solid #d8d2c8; border-radius: 7px; color: #24211d; background: #fff; font: 600 13px/1.35 system-ui; }
+.caption-timing-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
+.caption-timing-fields label { min-width: 0; display: grid; grid-template-columns: auto minmax(54px, 1fr) auto; align-items: center; gap: 5px; color: #454039; font: 650 10px/1 system-ui; }
+.caption-timing-fields input { min-width: 0; width: 100%; height: 30px; padding: 0 6px; border: 1px solid #cbc4ba; border-radius: 6px; color: #201d19; background: #fff; font: 650 11px/1 ui-monospace, monospace; }
+.caption-timing-fields em { color: #736c63; font-size: 9px; font-style: normal; }
 .caption-ready { display: grid; grid-template-columns: 30px minmax(0, 1fr) auto; align-items: center; gap: 9px; padding: 12px; border: 1px solid #b9d2c0; border-radius: 9px; color: #2f7753; background: #eef8f1; }
 .caption-ready span { display: grid; gap: 2px; }
 .caption-ready strong { color: #234c38; font-size: 13px; }

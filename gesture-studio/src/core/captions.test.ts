@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { activeCaptionAt, CAPTION_FONTS, captionAnchorFromPoint, captionFontFamily, captionPresetAnchor, captionSegmentsFromText, DEFAULT_CAPTION_STYLE, drawCaption, groupCaptionWords, normalizeCaptionStyle } from "./captions";
+import { activeCaptionAt, CAPTION_FONTS, captionAnchorFromPoint, captionFontFamily, captionPresetAnchor, captionSegmentsFromText, DEFAULT_CAPTION_STYLE, drawCaption, groupCaptionWords, normalizeCaptionStyle, retimeCaptionSegment } from "./captions";
 
 describe("post-recording captions", () => {
+  it("clamps manually edited caption timestamps to the take", () => {
+    const segment = { id: "one", text: "Hello", start: 1, end: 2 };
+    expect(retimeCaptionSegment(segment, 3.5, 8, 4)).toMatchObject({ start: 3.5, end: 4 });
+  });
   it("groups English word timestamps into short readable phrases", () => {
     const segments = groupCaptionWords([
       { text: "Hello", start: 0, end: 0.4 },

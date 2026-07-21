@@ -22,6 +22,17 @@ export function normalizeRenderRange(duration: number, startTime?: number, endTi
   return { start, end, duration: Math.max(0.05, end - start) };
 }
 
+/** Post-production text is visually smooth at 30 fps. Re-encoding a 60 fps
+ * source at its full capture bitrate doubles canvas and encoder pressure and
+ * causes the editor itself to stutter, without improving caption motion. */
+export function editedRenderProfile(width: number, height: number, sourceFrameRate: number, sourceBitrate: number) {
+  const frameRate = Math.max(1, Math.min(30, Math.round(sourceFrameRate || 30)));
+  const pixels = Math.max(1, width) * Math.max(1, height);
+  const qualityBitrate = Math.round(Math.max(4_000_000, Math.min(16_000_000, pixels * frameRate * 0.18)));
+  const bitrate = Math.max(2_000_000, Math.min(sourceBitrate || qualityBitrate, qualityBitrate));
+  return { frameRate, bitrate };
+}
+
 function waitForMetadata(video: HTMLVideoElement) {
   if (video.readyState >= HTMLMediaElement.HAVE_METADATA) return Promise.resolve();
   return new Promise<void>((resolve, reject) => {
@@ -68,24 +79,26 @@ export async function renderCaptionedTake(options: {
   await waitForMetadata(video);
   if (!video.captureStream) throw new Error("This browser cannot preserve take audio while rendering captions.");
   const range = normalizeRenderRange(video.duration, options.startTime, options.endTime);
+  const profile = editedRenderProfile(options.width, options.height, options.frameRate, options.bitrate);
   await seekVideo(video, range.start);
 
   const canvas = document.createElement("canvas");
   canvas.width = options.width;
   canvas.height = options.height;
-  const context = canvas.getContext("2d", { alpha: false });
+  const context = canvas.getContext("2d", { alpha: false, desynchronized: true });
   if (!context) throw new Error("The caption rendering canvas could not start.");
   context.drawImage(video, 0, 0, canvas.width, canvas.height);
   const sourceStream = video.captureStream();
   const audioOnly = new MediaStream(sourceStream.getAudioTracks());
-  const output = composedStream(canvas, Math.max(1, Math.round(options.frameRate)), audioOnly);
-  const recorder = new MediaRecorder(output, masterRecorderOptions(mimeType, options.bitrate));
+  const output = composedStream(canvas, profile.frameRate, audioOnly);
+  const recorder = new MediaRecorder(output, masterRecorderOptions(mimeType, profile.bitrate));
   const chunks: Blob[] = [];
   let animationId = 0;
   let settled = false;
   let stopping = false;
   let lastComposedAt = Number.NEGATIVE_INFINITY;
-  const targetFps = normalizedCompositionFps(options.frameRate);
+  const targetFps = normalizedCompositionFps(profile.frameRate);
+  let lastProgressAt = Number.NEGATIVE_INFINITY;
 
   return new Promise<Blob>((resolve, reject) => {
     const cleanup = () => {
@@ -120,9 +133,14 @@ export async function renderCaptionedTake(options: {
         if (options.wordCues?.length) {
           drawWordAnimation(context, canvas.width, canvas.height, activeWordAnimationAt(options.wordCues, video.currentTime), video.currentTime, options.style);
         }
-        options.onProgress?.(Math.min(1, Math.max(0, (video.currentTime - range.start) / range.duration)));
+        // React owns the surrounding studio. Updating its progress state for
+        // every encoded frame needlessly rerenders the full app during export.
+        if (now - lastProgressAt >= 250) {
+          lastProgressAt = now;
+          options.onProgress?.(Math.min(1, Math.max(0, (video.currentTime - range.start) / range.duration)));
+        }
       }
-      if (video.ended || video.currentTime >= range.end - 1 / Math.max(1, options.frameRate)) stopAtEditEnd();
+      if (video.ended || video.currentTime >= range.end - 1 / profile.frameRate) stopAtEditEnd();
       else animationId = requestAnimationFrame(draw);
     };
     recorder.ondataavailable = (event) => { if (event.data.size) chunks.push(event.data); };

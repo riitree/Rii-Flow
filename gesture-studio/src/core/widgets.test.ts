@@ -1,10 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { containWidgetMedia, orbitAssetAtPoint, orbitCardRects, orbitTargetAtPoint, pointNearOrbit, widgetAtPoint, widgetRect, type CanvasWidget } from "./widgets";
+import { containWidgetMedia, orbitAssetAtPoint, orbitCardRects, orbitPointRearmed, orbitTargetAtPoint, pointNearOrbit, widgetAtPoint, widgetRect, type CanvasWidget } from "./widgets";
 import type { StudioAsset, StudioScene } from "../types";
 
 const widget: CanvasWidget = { id: "w1", kind: "sticker", x: .5, y: .5, scale: 1, title: "Star", items: [], revealed: 0, sticker: "star", visible: true };
 
 describe("canvas widgets", () => {
+  it("requires a clear hand retreat before an orbit can reactivate", () => {
+    expect(orbitPointRearmed({ x: 500, y: 300 }, { x: 550, y: 300 }, 1000, 600)).toBe(false);
+    expect(orbitPointRearmed({ x: 500, y: 300 }, { x: 575, y: 300 }, 1000, 600)).toBe(true);
+  });
+
   it("hit-tests the recorded widget bounds", () => {
     const rect = widgetRect(widget, 1000, 600);
     expect(widgetAtPoint([widget], { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 }, 1000, 600)?.id).toBe("w1");

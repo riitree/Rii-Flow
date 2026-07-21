@@ -209,11 +209,20 @@ export function containStyleRect(container: StyleRect, sourceWidth: number, sour
 }
 
 export function styleFocusBaseRect(layout: VideoStyleLayout, asset: StudioAsset, sourceWidth?: number, sourceHeight?: number): StyleRect {
+  if (asset.kind === "video" && asset.size === "full") {
+    const regions = [layout.camera, layout.panel, layout.focusBounds].filter((region): region is StyleRect => Boolean(region));
+    const left = Math.min(...regions.map((region) => region.x));
+    const top = Math.min(...regions.map((region) => region.y));
+    const right = Math.max(...regions.map((region) => region.x + region.width));
+    const bottom = Math.max(...regions.map((region) => region.y + region.height));
+    return { x: left, y: top, width: right - left, height: bottom - top };
+  }
   if (asset.kind === "csv" || asset.kind === "json" || !sourceWidth || !sourceHeight) return { ...layout.focus };
   return containStyleRect(layout.focus, sourceWidth, sourceHeight);
 }
 
-export function styleTransformBounds(layout: VideoStyleLayout) {
+export function styleTransformBounds(layout: VideoStyleLayout, asset?: StudioAsset) {
+  if (asset?.kind === "video" && asset.size === "full") return undefined;
   return layout.constrainedFocus ? layout.focusBounds : undefined;
 }
 
@@ -266,4 +275,15 @@ export function initialStyleTransform(base: StyleRect, canvasWidth: number, canv
     y: (base.y + base.height / 2) / canvasHeight,
     scale: 1
   };
+}
+
+/** Use the centered spawn transform only once. Once a presenter has moved or
+ * resized an asset, every later reveal must reuse that authored layout. */
+export function retainedStyleTransform(
+  current: AssetTransform | undefined,
+  base: StyleRect,
+  canvasWidth: number,
+  canvasHeight: number
+): AssetTransform {
+  return current ?? initialStyleTransform(base, canvasWidth, canvasHeight);
 }

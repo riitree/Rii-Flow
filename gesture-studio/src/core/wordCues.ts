@@ -35,6 +35,13 @@ const STOP_WORDS = new Set([
 const clamp = (value: number, minimum: number, maximum: number) => Math.min(maximum, Math.max(minimum, value));
 const cleanWord = (value: string) => value.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}'-]+$/gu, "").trim();
 
+export function retimeWordAnimationCue(cue: WordAnimationCue, start: number, end: number, durationSeconds: number) {
+  const duration = Math.max(0.05, Number.isFinite(durationSeconds) ? durationSeconds : cue.end);
+  const safeStart = clamp(Number.isFinite(start) ? start : cue.start, 0, Math.max(0, duration - 0.05));
+  const safeEnd = clamp(Number.isFinite(end) ? end : cue.end, safeStart + 0.05, duration);
+  return { ...cue, start: safeStart, end: safeEnd };
+}
+
 function timedWords(segments: readonly CaptionSegment[]): TimedWord[] {
   const words: TimedWord[] = [];
   segments.forEach((segment) => {

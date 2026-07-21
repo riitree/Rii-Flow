@@ -124,16 +124,20 @@ export function resolveGesture(categoryName: string | undefined, confidence: num
  */
 export function resolveCompositeGesture(hands: readonly GestureResolution[]): GestureResolution | null {
   const eligible = hands
-    .filter((hand): hand is GestureResolution & { gesture: "two" | "thumb" } => (
-      (hand.gesture === "two" || hand.gesture === "thumb")
+    .filter((hand): hand is GestureResolution & { gesture: "one" | "two" | "thumb" | "fist" } => (
+      (hand.gesture === "one" || hand.gesture === "two" || hand.gesture === "thumb" || hand.gesture === "fist")
       && hand.confidence * hand.quality >= 0.62
     ))
     .sort((a, b) => (b.confidence * b.quality) - (a.confidence * a.quality));
   if (eligible.length < 2) return null;
   const pair = eligible.slice(0, 2);
   const gestures = pair.map((hand) => hand.gesture).sort();
-  const gesture: GestureId | null = gestures[0] === "two" && gestures[1] === "two"
-    ? "double-two"
+  const gesture: GestureId | null = gestures[0] === "fist" && gestures[1] === "fist"
+    ? "double-fist"
+    : gestures[0] === "one" && gestures[1] === "one"
+      ? "double-one"
+    : gestures[0] === "two" && gestures[1] === "two"
+      ? "double-two"
     : gestures[0] === "thumb" && gestures[1] === "thumb"
       ? "double-thumb"
       : gestures.includes("thumb") && gestures.includes("two")
@@ -191,6 +195,8 @@ const ENTER_SCORE: Record<StabilizedIntent, number> = {
   thumb: 0.66,
   "thumb-down": 0.66,
   love: 0.66,
+  "double-fist": 0.72,
+  "double-one": 0.72,
   "double-two": 0.72,
   "double-thumb": 0.72,
   "thumb-two": 0.72

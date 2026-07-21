@@ -1,6 +1,7 @@
 import {
   AlertTriangle,
   ArrowDown,
+  ArrowRight,
   ArrowUp,
   Archive,
   BarChart3,
@@ -21,6 +22,7 @@ import {
   Hand,
   HardDrive,
   Heart,
+  HelpCircle,
   Image as ImageIcon,
   Layers3,
   LayoutGrid,
@@ -84,9 +86,9 @@ import {
 } from "./core/audio";
 import { startCaptionCapture, type CaptionAudio, type CaptionCaptureSession } from "./core/captionCapture";
 import { transcribeEnglish, transcribeTriggerEnglish, warmEnglishTranscriber, type CaptionProgress } from "./core/captionClient";
-import { editedFileName, renderCaptionedTake } from "./core/captionRender";
-import { activeCaptionAt, CAPTION_FONTS, captionAnchorFromPoint, captionFontFamily, captionPresetAnchor, DEFAULT_CAPTION_STYLE, drawCaption, normalizeCaptionStyle, type CaptionSegment, type CaptionStyle } from "./core/captions";
-import { activeWordAnimationAt, buildWordAnimationCues, VoiceEmphasisTracker, type VoiceEmphasisMarker, type WordAnimationCue } from "./core/wordCues";
+import { editedFileName, editedRenderProfile, renderCaptionedTake } from "./core/captionRender";
+import { activeCaptionAt, CAPTION_FONTS, captionAnchorFromPoint, captionFontFamily, captionPresetAnchor, DEFAULT_CAPTION_STYLE, drawCaption, normalizeCaptionStyle, retimeCaptionSegment, type CaptionSegment, type CaptionStyle } from "./core/captions";
+import { activeWordAnimationAt, buildWordAnimationCues, retimeWordAnimationCue, type WordAnimationCue } from "./core/wordCues";
 import { normalizeTriggerWord, suggestAssetTrigger, suggestSceneTrigger, triggerTargets, type VoiceTriggerTarget } from "./core/voiceTriggers";
 import { normalizeConceptAliases, reconcileConcepts, type StudioConcept } from "./core/concepts";
 import { IntentEngine, type IntentCandidate } from "./core/intentEngine";
@@ -103,7 +105,7 @@ import { gestureCueAtCursor, gestureSequenceLayerIds, normalizeGestureSequences,
 import { preferredCompositionDriver, replaceLatestFrame, videoFrameProcessor, type CompositionDriver } from "./core/framePipeline";
 import { activateLayer, hideFocusedLayer, removeLayer, topmostStageHit, topmostStageHitForPoints, type StageHitCandidate } from "./core/layers";
 import { enforceLiveBudget, MAX_LIVE_MOVING_SOURCES, MAX_LIVE_VISUALS } from "./core/liveBudget";
-import { ManipulationTracker, mapControlPointForMirror, mapControlPointToStageViewport, mapPointForMovementReach, palmControlPoint, PalmSignalTracker, type ManipulationMode, type ManipulationUpdate, type PalmObservation } from "./core/manipulation";
+import { ManipulationTracker, manipulationFollowAlpha, mapControlPointForMirror, mapControlPointToStageViewport, mapPointForMovementReach, palmControlPoint, PalmSignalTracker, type ManipulationMode, type ManipulationUpdate, type PalmObservation } from "./core/manipulation";
 import { fitImageCropToAspect, hasVideoTrim, normalizeImageCrop, normalizeVideoTrim } from "./core/mediaEdits";
 import {
   createBrowserMediaProvider,
@@ -118,6 +120,7 @@ import {
   formatBitrate,
   QUALITY_PRESETS,
   qualityPreset,
+  recommendedQualityForDevice,
   type QualityId,
   type QualityPreset
 } from "./core/quality";
@@ -126,7 +129,7 @@ import { PointFocusTracker } from "./core/pointFocus";
 import { CircleMorphTracker, drawAssetMorphExit, type AssetMorphExit } from "./core/assetMorph";
 import { drawStageSpotlight } from "./core/spotlight";
 import { DeckScrollController } from "./core/deckScroll";
-import { drawCanvasWidgets, drawLiveSticker, liveStickerRect, orbitTargetAtPoint, pointNearOrbit, widgetAtPoint, type CanvasWidget, type CanvasWidgetKind, type WidgetFrameStyle } from "./core/widgets";
+import { drawCanvasWidgets, drawLiveSticker, liveStickerRect, orbitPointRearmed, orbitTargetAtPoint, pointNearOrbit, widgetAtPoint, widgetRect, type CanvasWidget, type CanvasWidgetKind, type WidgetFrameStyle } from "./core/widgets";
 import { compositionImageSize } from "./core/imageOptimization";
 import { adjacentDirectorCueIndex, buildDirectorQueue, directorCueIndex } from "./core/directorQueue";
 import { appendDirectorEvent, closeOpenDirectorEvents, nudgeDirectorEvent, removeDirectorEvent, type DirectorTrackEvent } from "./core/directorTrack";
@@ -134,7 +137,7 @@ import { composedStream, masterRecorderOptions, recordingMimeType } from "./core
 import { constrainedSceneMemberIds, layerAssetIds, layerName, MAX_SCENE_ASSETS, MAX_SCENE_VIDEO_ASSETS, removeAssetFromScenes, resolveLayer, sceneLayerId, sceneMemberAtPalmCenter, sceneMemberLimitError } from "./core/scenes";
 import { applyPresetToAssets, applyPresetToScenes, STUDIO_PRESETS, type StudioPresetId } from "./core/studioPresets";
 import { normalizeVideoPlaybackMode, videoBoundaryAction } from "./core/videoPlayback";
-import { assetsForMainDock, initialStyleTransform, MAX_STYLE_ASSETS, VIDEO_STYLES, pointNearStyleDeck, styleAssetAtPoint, styleAssetsWithFocus, styleFocusBaseRect, styleTransformBounds, videoStyleLayout, type VideoStyleId } from "./core/videoStyles";
+import { assetsForMainDock, MAX_STYLE_ASSETS, VIDEO_STYLES, pointNearStyleDeck, retainedStyleTransform, styleAssetAtPoint, styleAssetsWithFocus, styleFocusBaseRect, styleTransformBounds, videoStyleLayout, type VideoStyleId } from "./core/videoStyles";
 import { mergeTakeLibrary, takesForProject } from "./core/takeLibrary";
 import {
   createBlankProject,
@@ -190,6 +193,15 @@ import {
   type SceneRevealSide
 } from "./types";
 
+const TUTORIAL_STEPS = [
+  { target: "welcome", eyebrow: "Welcome", title: "Your live video desk", body: "Rii-Flow records the canvas exactly as you see it. Set up once, then present with your hands instead of editing afterward." },
+  { target: "media", eyebrow: "Step 1", title: "Bring in what you want to show", body: "Choose your pictures and videos. They appear in a short list, ready for your live presentation." },
+  { target: "layout", eyebrow: "Step 2", title: "Choose one look", body: "Clean, Side by side, or Freeform—that is all you need to decide. Rii-Flow handles the layout underneath." },
+  { target: "devices", eyebrow: "Step 3", title: "Check camera and microphone", body: "Your essential device choices stay at the top. Extra visual and recording settings are hidden until you ask for them." },
+  { target: "gestures", eyebrow: "Step 4", title: "Simple gestures do the work", body: "Point and hold opens an item. Thumbs-up opens the deck. Open palm flicks to scroll. One fist closes the current visual; two fists clear every visual and widget." },
+  { target: "record", eyebrow: "Step 5", title: "Record the finished canvas", body: "Start the camera, press Record, and present naturally. Everything visible on the canvas is captured together." }
+] as const;
+
 type StudioPhase = "idle" | "permission" | "loading" | "switching" | "stopping" | "ready" | "error";
 type MicrophonePhase = "idle" | "permission" | "switching" | "ready" | "off" | "error";
 type ScreenPhase = "idle" | "permission" | "ready" | "error";
@@ -237,6 +249,18 @@ interface PointerEditSession {
   layerId: string;
   sceneMemberId?: string;
   sceneGroupRect?: Rect;
+  moved: boolean;
+}
+
+interface WidgetPointerEditSession {
+  pointerId: number;
+  mode: "drag" | "scale";
+  widgetId: string;
+  startClientX: number;
+  startClientY: number;
+  stageWidth: number;
+  stageHeight: number;
+  initial: { x: number; y: number; scale: number };
   moved: boolean;
 }
 
@@ -359,7 +383,13 @@ function spawnStyleFor(animation?: EntranceAnimation, sound?: CueSound): SpawnSt
   return SPAWN_STYLES.find((style) => style.animation === (animation ?? "fade") && style.sound === (sound ?? "none"))?.id ?? "custom";
 }
 
-const ACTIVATION_GESTURES = GESTURES.filter((gesture) => gesture.id !== "one");
+const ACTIVATION_GESTURES = GESTURES.filter((gesture) => gesture.id !== "one" && gesture.id !== "double-fist");
+const STANDALONE_ASSET_GESTURES = GESTURES.filter((gesture) => ["two", "three", "four", "double-one"].includes(gesture.id));
+const OUTPUT_RESOLUTIONS = [
+  { id: "720p", label: "720p" },
+  { id: "1080p", label: "1080p" },
+  { id: "4k", label: "4K" }
+] as const;
 const SCENE_MEMBER_FOCUS_MODES: { id: SceneMemberFocusMode; label: string }[] = [
   { id: "off", label: "No focus" },
   { id: "medium", label: "Focus medium" },
@@ -407,7 +437,7 @@ function normalizeSceneRevealMotion(value: unknown): SceneRevealMotion {
 
 const DEFAULT_TIMING = { holdMs: MIN_GESTURE_HOLD_MS, cooldownMs: 550 };
 const VOICE_ARM_TIMEOUT_MS = 12_000;
-const DEFAULT_MANIPULATION = { armMs: 220, releaseGraceMs: 150, hitPadding: 0.035 };
+const DEFAULT_MANIPULATION = { armMs: 140, releaseGraceMs: 180, hitPadding: 0.05 };
 const SCENE_MEMBER_SELECTION_GRACE_MS = 320;
 const SCREEN_OVERLAY_ID = "__live-screen-overlay__";
 const DEFAULT_SCREEN_OVERLAY: ScreenOverlaySettings = { placement: "right", size: "medium", visible: false, entranceAnimation: "fade", cueSound: "none", cueVolume: 0.55 };
@@ -702,6 +732,10 @@ function videoStyleAssets(assets: readonly StudioAsset[], scenes: readonly Studi
   return videoStyleWindow(assets, scenes, screenAsset, focusedAssetId, deckOffset).assets;
 }
 
+function defaultDeckPlacement(style: VideoStyleId) {
+  return style === "top-shelf" ? 0.055 : style === "center-shelf" ? 0.425 : style === "bottom-shelf" ? 0.77 : 0.5;
+}
+
 export default function App() {
   const params = useMemo(() => new URLSearchParams(window.location.search), []);
   const diagnostics = import.meta.env.DEV && params.has("diagnostics");
@@ -731,7 +765,7 @@ export default function App() {
 
   const [phase, setPhase] = useState<StudioPhase>("idle");
   const [themeMode, setThemeMode] = useState<ThemeMode>(() => localStorage.getItem("rii-flow-theme") === "light" ? "light" : "dark");
-  const [phaseMessage, setPhaseMessage] = useState("Select a camera and start the studio");
+  const [phaseMessage, setPhaseMessage] = useState("Camera starts automatically when you enter");
   const [studioReady, setStudioReady] = useState(false);
   const [cameras, setCameras] = useState<CameraOption[]>([]);
   const [microphones, setMicrophones] = useState<MicrophoneOption[]>([]);
@@ -745,7 +779,9 @@ export default function App() {
   const [screenPhase, setScreenPhase] = useState<ScreenPhase>("idle");
   const [screenSettings, setScreenSettings] = useState<ScreenCaptureSettings | null>(null);
   const [screenOverlay, setScreenOverlay] = useState<ScreenOverlaySettings>({ ...DEFAULT_SCREEN_OVERLAY });
-  const [qualityId, setQualityId] = useState<QualityId>(() => diagnostics ? "720p30" : (localStorage.getItem("gesture-studio-quality") as QualityId) || "720p30");
+  const [qualityId, setQualityId] = useState<QualityId>(() => diagnostics
+    ? "720p30"
+    : recommendedQualityForDevice(navigator.hardwareConcurrency, (navigator as Navigator & { deviceMemory?: number }).deviceMemory));
   const [aspectId, setAspectId] = useState<CanvasAspectId>("landscape");
   const [mirrorCamera, setMirrorCamera] = useState(() => diagnostics ? false : localStorage.getItem("gesture-studio-mirror") === "true");
   const [cameraFrame, setCameraFrame] = useState<CameraFrameSettings>({ ...DEFAULT_CAMERA_FRAME });
@@ -763,6 +799,10 @@ export default function App() {
   const [projectHydrated, setProjectHydrated] = useState(diagnostics);
   const [projectSaveState, setProjectSaveState] = useState<"loading" | "saved" | "saving" | "error">(diagnostics ? "saved" : "loading");
   const [welcomeOpen, setWelcomeOpen] = useState(!diagnostics);
+  const [tutorialOpen, setTutorialOpen] = useState(false);
+  const [tutorialStep, setTutorialStep] = useState(0);
+  const [simpleExtrasOpen, setSimpleExtrasOpen] = useState(false);
+  const [guidedWorkflowStep, setGuidedWorkflowStep] = useState(1);
   const [assets, setAssets] = useState<StudioAsset[]>([]);
   const [scenes, setScenes] = useState<StudioScene[]>([]);
   const [concepts, setConcepts] = useState<StudioConcept[]>([]);
@@ -776,7 +816,7 @@ export default function App() {
   const [assetDeckMode, setAssetDeckMode] = useState<AssetDeckMode>(() => diagnostics ? "always" : "command");
   const [assetDeckVisible, setAssetDeckVisible] = useState(() => diagnostics);
   const [assetDeckOffset, setAssetDeckOffset] = useState(0);
-  const [deckPlacement, setDeckPlacement] = useState(() => videoStyleId === "top-shelf" ? 0.055 : videoStyleId === "center-shelf" ? 0.425 : videoStyleId === "bottom-shelf" ? 0.77 : 0.5);
+  const [deckPlacement, setDeckPlacement] = useState(() => defaultDeckPlacement(videoStyleId));
   const [panelBackground, setPanelBackground] = useState(() => localStorage.getItem("rii-flow-panel-background") ?? "#15131a");
   const [timelineEvents, setTimelineEvents] = useState<VisualTimelineEvent[]>([]);
   const [selectedDirectorEventId, setSelectedDirectorEventId] = useState<string | null>(null);
@@ -840,8 +880,6 @@ export default function App() {
   const [captionPreviewTime, setCaptionPreviewTime] = useState(0);
   const [captionPreviewPlaying, setCaptionPreviewPlaying] = useState(false);
   const [wordAnimationCues, setWordAnimationCues] = useState<WordAnimationCue[]>([]);
-  const [voiceEmphasisMarkers, setVoiceEmphasisMarkers] = useState<VoiceEmphasisMarker[]>([]);
-  const [liveWordSpark, setLiveWordSpark] = useState<VoiceEmphasisMarker | null>(null);
   const [morphGestureProgress, setMorphGestureProgress] = useState(0);
   const [morphExitAssetId, setMorphExitAssetId] = useState<string | null>(null);
   // Browser Rii-Flow is deliberately gesture-first. Native keyword control is
@@ -914,8 +952,6 @@ export default function App() {
   const directorCursorRef = useRef(0);
   const directorFocusedAssetIdRef = useRef<string | null>(null);
   const palmRestoreRef = useRef({ since: 0, latched: false });
-  const transientAssetLayoutsRef = useRef(new Map<string, Pick<StudioAsset, "placement" | "size" | "transform" | "cameraReflow">>());
-  const transientSceneLayoutsRef = useRef(new Map<string, Pick<StudioScene, "placement" | "size" | "transform" | "memberTransforms" | "memberOrder">>());
   const layerActivationTimesRef = useRef<Record<string, number>>({});
   const studioReadyRef = useRef(studioReady);
   const recordingRef = useRef(isRecording);
@@ -941,6 +977,7 @@ export default function App() {
   const pointFocusTrackerRef = useRef(new PointFocusTracker(420));
   const widgetPointTrackerRef = useRef(new PointFocusTracker(280));
   const orbitScrollRef = useRef<{ widgetId: string; lastY: number } | null>(null);
+  const orbitPointRearmRef = useRef<{ widgetId: string; x: number; y: number } | null>(null);
   const circleMorphTrackerRef = useRef(new CircleMorphTracker());
   const manipulationGuardUntilRef = useRef(0);
   const sceneMemberTargetIdRef = useRef<string | null>(null);
@@ -958,6 +995,7 @@ export default function App() {
   const pendingFallbackRef = useRef<string | null>(null);
   const diagnosticSequenceStartRef = useRef(0);
   const pointerEditRef = useRef<PointerEditSession | null>(null);
+  const widgetPointerEditRef = useRef<WidgetPointerEditSession | null>(null);
   const suppressStageClickUntilRef = useRef(0);
   const sceneSoloRef = useRef<Record<string, string>>({});
   const captionCaptureRef = useRef<CaptionCaptureSession | null>(null);
@@ -967,9 +1005,6 @@ export default function App() {
   const assetEditorVideoRef = useRef<HTMLVideoElement>(null);
   const captionPreviewCanvasRef = useRef<HTMLCanvasElement>(null);
   const captionDragPointerRef = useRef<{ pointerId: number; offsetX: number; offsetY: number } | null>(null);
-  const voiceEmphasisTrackerRef = useRef(new VoiceEmphasisTracker());
-  const voiceEmphasisMarkersRef = useRef<VoiceEmphasisMarker[]>([]);
-  const liveWordSparkTimerRef = useRef<number | null>(null);
   const confirmFeedbackTimerRef = useRef<number | null>(null);
   const assetMorphExitRef = useRef<AssetMorphExit | null>(null);
   const activeGeometryRef = useRef<{ rect: Rect } | null>(null);
@@ -1044,7 +1079,7 @@ export default function App() {
     const sourceHeight = activeLayer.asset.id === SCREEN_OVERLAY_ID ? screenSettings?.height : source instanceof HTMLImageElement ? source.naturalHeight : source instanceof HTMLVideoElement ? source.videoHeight : undefined;
     if (styleAssets.some((asset) => asset.id === activeLayer.asset.id)) {
       const base = styleFocusBaseRect(currentStyleLayout, activeLayer.asset, sourceWidth, sourceHeight);
-      const bounds = styleTransformBounds(currentStyleLayout);
+      const bounds = styleTransformBounds(currentStyleLayout, activeLayer.asset);
       return { base, bounds, rect: applyAssetTransform(outputSize.width, outputSize.height, base, activeLayer.asset.transform, bounds), transform: activeLayer.asset.transform };
     }
     const base = baseAssetRect(outputSize.width, outputSize.height, activeLayer.asset, sourceWidth, sourceHeight);
@@ -1297,52 +1332,9 @@ export default function App() {
     if (captionEnabled && !captionPreviewRendered) drawCaption(context, width, height, captionPreviewSegment, captionStyle);
   }, [captionEnabled, captionPreviewRendered, captionPreviewSegment, captionStyle, finishTake]);
 
-  const rememberTransientAssetLayout = useCallback((assetId: string) => {
-    if (transientAssetLayoutsRef.current.has(assetId)) return;
-    const asset = assetsRef.current.find((item) => item.id === assetId);
-    if (!asset) return;
-    transientAssetLayoutsRef.current.set(assetId, {
-      placement: asset.placement,
-      size: asset.size,
-      transform: asset.transform,
-      cameraReflow: asset.cameraReflow
-    });
-  }, []);
-
-  const rememberTransientSceneLayout = useCallback((sceneId: string) => {
-    if (transientSceneLayoutsRef.current.has(sceneId)) return;
-    const scene = scenesRef.current.find((item) => item.id === sceneId);
-    if (!scene) return;
-    transientSceneLayoutsRef.current.set(sceneId, {
-      placement: scene.placement,
-      size: scene.size,
-      transform: scene.transform,
-      memberTransforms: scene.memberTransforms,
-      memberOrder: scene.memberOrder
-    });
-  }, []);
-
-  const restoreTransientAssetLayout = useCallback((assetId: string) => {
-    const saved = transientAssetLayoutsRef.current.get(assetId);
-    if (!saved) return;
-    transientAssetLayoutsRef.current.delete(assetId);
-    const next = assetsRef.current.map((asset) => asset.id === assetId ? { ...asset, ...saved } : asset);
-    assetsRef.current = next;
-    setAssets(next);
-    if (directorFocusedAssetIdRef.current === assetId) {
-      directorFocusedAssetIdRef.current = null;
-      setDirectorFocusedAssetId(null);
-    }
-  }, []);
-
   const restoreTransientSceneLayout = useCallback((sceneId: string) => {
-    const saved = transientSceneLayoutsRef.current.get(sceneId);
-    if (saved) {
-      transientSceneLayoutsRef.current.delete(sceneId);
-      const next = scenesRef.current.map((scene) => scene.id === sceneId ? { ...scene, ...saved } : scene);
-      scenesRef.current = next;
-      setScenes(next);
-    }
+    // Solo focus is runtime-only, but the scene's group transform and every
+    // member transform are authored workspace state and must survive respawn.
     const nextSolo = { ...sceneSoloRef.current };
     delete nextSolo[sceneId];
     sceneSoloRef.current = nextSolo;
@@ -1352,9 +1344,10 @@ export default function App() {
   const restoreTransientLayer = useCallback((layerId: string) => {
     const layer = resolveLayer(layerId, assetsRef.current, scenesRef.current);
     if (!layer) return;
-    if (layer.kind === "asset") restoreTransientAssetLayout(layer.asset.id);
-    else restoreTransientSceneLayout(layer.scene.id);
-  }, [restoreTransientAssetLayout, restoreTransientSceneLayout]);
+    // Individual asset transforms are authored workspace state. Hiding and
+    // revealing an asset must never roll its position or scale back.
+    if (layer.kind === "scene") restoreTransientSceneLayout(layer.scene.id);
+  }, [restoreTransientSceneLayout]);
 
   const commitAssetUpdates = useCallback((assetId: string, updates: Partial<StudioAsset>) => {
     if (assetId === SCREEN_OVERLAY_ID) {
@@ -1372,19 +1365,16 @@ export default function App() {
       setScreenOverlay(next);
       return;
     }
-    if ("transform" in updates && liveLayerIdsRef.current.includes(assetId)) rememberTransientAssetLayout(assetId);
     const next = assetsRef.current.map((asset) => asset.id === assetId ? { ...asset, ...updates } : asset);
     assetsRef.current = next;
     setAssets(next);
-  }, [rememberTransientAssetLayout]);
+  }, []);
 
   const commitSceneUpdates = useCallback((sceneId: string, updates: Partial<StudioScene>) => {
-    if (("transform" in updates || "memberTransforms" in updates || "memberOrder" in updates)
-      && liveLayerIdsRef.current.includes(sceneLayerId(sceneId))) rememberTransientSceneLayout(sceneId);
     const next = scenesRef.current.map((scene) => scene.id === sceneId ? { ...scene, ...updates } : scene);
     scenesRef.current = next;
     setScenes(next);
-  }, [rememberTransientSceneLayout]);
+  }, []);
 
   const beginPointerEdit = (event: ReactPointerEvent<HTMLElement>, mode: "drag" | "scale") => {
     const editGeometry = activeSceneMemberEditorGeometry ?? activeGeometry;
@@ -1517,6 +1507,22 @@ export default function App() {
 
   const handleStageClick = (event: ReactMouseEvent<HTMLElement>) => {
     if (isFinalizing || performance.now() < suppressStageClickUntilRef.current) return;
+    const canvas = outputCanvasRef.current;
+    const canvasBounds = canvas?.getBoundingClientRect();
+    if (canvas && canvasBounds?.width && canvasBounds.height) {
+      const widget = widgetAtPoint(widgetsRef.current, {
+        x: (event.clientX - canvasBounds.left) / canvasBounds.width * canvas.width,
+        y: (event.clientY - canvasBounds.top) / canvasBounds.height * canvas.height
+      }, canvas.width, canvas.height);
+      if (widget && widget.kind !== "live") {
+        setSelectedWidgetId(widget.id);
+        activeLayerIdRef.current = null;
+        setActiveLayerId(null);
+        setSelectedSceneMemberId(null);
+        return;
+      }
+    }
+    setSelectedWidgetId(null);
     const hit = layerAtStagePoint(event);
     const styleAsset = hit ? currentVideoStyleAssets().find((asset) => asset.id === hit.layerId) : undefined;
     if (styleAsset) focusVideoStyleAssetRef.current(styleAsset);
@@ -1576,8 +1582,6 @@ export default function App() {
     directorCursorRef.current = 0;
     directorFocusedAssetIdRef.current = null;
     palmRestoreRef.current = { since: 0, latched: false };
-    transientAssetLayoutsRef.current.clear();
-    transientSceneLayoutsRef.current.clear();
     setActiveGestureCue(null);
     setDirectorCursor(0);
     setDirectorFocusedAssetId(null);
@@ -1695,7 +1699,10 @@ export default function App() {
     projectIdRef.current = snapshot.id;
     selectedCameraRef.current = snapshot.selectedCameraId || selectedCameraRef.current;
     selectedMicrophoneRef.current = snapshot.selectedMicrophoneId || "none";
-    qualityRef.current = snapshot.qualityId || "720p30";
+    qualityRef.current = diagnostics
+      ? "720p30"
+      : recommendedQualityForDevice(navigator.hardwareConcurrency, (navigator as Navigator & { deviceMemory?: number }).deviceMemory);
+    // Rii-Flow records in one predictable, standard video format.
     aspectRef.current = snapshot.aspectId || "landscape";
     mirrorCameraRef.current = Boolean(snapshot.mirrorCamera);
     const restoredCameraFrame = normalizeCameraFrame(snapshot.cameraFrame);
@@ -1722,7 +1729,10 @@ export default function App() {
       holdMs: Number.isFinite(restoredHoldMs) ? Math.max(MIN_GESTURE_HOLD_MS, restoredHoldMs) : DEFAULT_TIMING.holdMs,
       cooldownMs: savedTiming.cooldownMs === 900 || savedTiming.cooldownMs === 700 ? DEFAULT_TIMING.cooldownMs : savedTiming.cooldownMs
     });
-    setPalmHoldMs(snapshot.palmHoldMs || DEFAULT_MANIPULATION.armMs);
+    const savedPalmHold = snapshot.palmHoldMs;
+    setPalmHoldMs(!Number.isFinite(savedPalmHold) || savedPalmHold === 220
+      ? DEFAULT_MANIPULATION.armMs
+      : Math.min(400, Math.max(80, savedPalmHold)));
     const source = qualityPreset(qualityRef.current);
     const dimensions = canvasDimensions(source.width, source.height, aspectRef.current);
     if (outputCanvasRef.current) {
@@ -1943,7 +1953,7 @@ export default function App() {
       await refreshCameras();
       if (studioReadyRef.current) {
         setPhase("ready");
-        setPhaseMessage("Studio ready — point at a visual or use its gesture");
+        setPhaseMessage("Camera and gestures ready — point at a visual or use its gesture");
       }
     } catch (error) {
       if (!previous) {
@@ -2556,7 +2566,7 @@ export default function App() {
   const finishStudioStop = () => {
     releaseStudio();
     setPhase("idle");
-    setPhaseMessage("Select a camera and start the studio");
+    setPhaseMessage("Camera starts automatically when you enter");
   };
 
   const stopStudio = () => {
@@ -2570,7 +2580,7 @@ export default function App() {
       return;
     }
     setPhase("idle");
-    setPhaseMessage("Select a camera and start the studio");
+    setPhaseMessage("Camera starts automatically when you enter");
   };
 
   const startStudio = async () => {
@@ -2617,7 +2627,7 @@ export default function App() {
       studioReadyRef.current = true;
       setStudioReady(true);
       setPhase("ready");
-      setPhaseMessage("Studio ready — point at a visual or use its gesture");
+      setPhaseMessage("Camera and gestures ready — point at a visual or use its gesture");
       diagnosticSequenceStartRef.current = performance.now();
     } catch {
       if (studioSession !== studioSessionRef.current) {
@@ -2632,6 +2642,11 @@ export default function App() {
       studioReadyRef.current = false;
     }
   };
+
+  useEffect(() => {
+    if (diagnostics || welcomeOpen || studioReadyRef.current || studioStartingRef.current || phase !== "idle") return;
+    void startStudio();
+  }, [welcomeOpen]);
 
   /* Desktop-only keyword recognition is intentionally excluded from the web
      product. The preserved implementation lives in rii-flow-desktop.
@@ -2990,7 +3005,7 @@ export default function App() {
       if (now - statsStarted >= 1000) {
         const elapsed = now - statsStarted;
         const nextHealth = compositionHealth(composedFrames, totalComposeMs, elapsed, targetFps, overBudgetFrames);
-        if (!document.hidden) {
+        if (!document.hidden && !recordingRef.current) {
           setCompositionStats((current) => current.fps === nextHealth.fps
             && current.averageMs === nextHealth.averageMs
             && current.budgetPercent === nextHealth.budgetPercent
@@ -3187,7 +3202,7 @@ export default function App() {
       setCaptionEnabled(true);
       const sampleSegments = [{ id: "caption-layout-sample", text: "Place this caption exactly where you want it", start: 0, end: 5 }];
       setCaptionSegments(sampleSegments);
-      setWordAnimationCues(buildWordAnimationCues(sampleSegments, [{ id: "sample-emphasis", time: 2.2, strength: 0.95 }], 5));
+      setWordAnimationCues(buildWordAnimationCues(sampleSegments, [], 5));
       setCaptionStatus("ready");
       return;
     }
@@ -3229,7 +3244,7 @@ export default function App() {
             setCaptionStatus(progress.phase === "loading" ? "loading" : "transcribing");
           });
       if (!segments.length) throw new Error("No clear English speech was found in the selected microphone feed.");
-      const wordCues = buildWordAnimationCues(segments, finishTake.voiceEmphasis ?? [], finishTake.durationSeconds);
+      const wordCues = buildWordAnimationCues(segments, [], finishTake.durationSeconds);
       setCaptionSegments(segments);
       setWordAnimationCues(wordCues);
       setCaptionStatus("ready");
@@ -3309,6 +3324,22 @@ export default function App() {
     markCaptionDraftChanged();
   };
 
+  const updateCaptionTiming = (id: string, field: "start" | "end", value: number) => {
+    if (!Number.isFinite(value)) return;
+    setCaptionSegments((current) => current.map((segment) => segment.id === id
+      ? retimeCaptionSegment(segment, field === "start" ? value : segment.start, field === "end" ? value : segment.end, finishDuration)
+      : segment).sort((a, b) => a.start - b.start));
+    markCaptionDraftChanged();
+  };
+
+  const updateWordAnimationTiming = (id: string, field: "start" | "end", value: number) => {
+    if (!Number.isFinite(value)) return;
+    setWordAnimationCues((current) => current.map((cue) => cue.id === id
+      ? retimeWordAnimationCue(cue, field === "start" ? value : cue.start, field === "end" ? value : cue.end, finishDuration)
+      : cue).sort((a, b) => a.start - b.start));
+    markCaptionDraftChanged();
+  };
+
   const removeWordAnimation = (id: string) => {
     setWordAnimationCues((current) => current.filter((cue) => cue.id !== id));
     markCaptionDraftChanged();
@@ -3316,7 +3347,7 @@ export default function App() {
 
   const restoreWordAnimations = () => {
     if (!finishTake || !captionSegments.length) return;
-    setWordAnimationCues(buildWordAnimationCues(captionSegments, finishTake.voiceEmphasis ?? [], finishTake.durationSeconds));
+    setWordAnimationCues(buildWordAnimationCues(captionSegments, [], finishTake.durationSeconds));
     markCaptionDraftChanged();
   };
 
@@ -3420,6 +3451,7 @@ export default function App() {
         fileName,
         url,
         bytes: blob.size,
+        ...editedRenderProfile(finishTake.width, finishTake.height, finishTake.frameRate, finishTake.bitrate),
         durationSeconds: Math.max(1, normalizedTakeTrim.end - normalizedTakeTrim.start),
         createdAt: finishedAt,
         folderBacked,
@@ -3621,6 +3653,48 @@ export default function App() {
     closeVisualTimelineEvent();
   }, [closeVisualTimelineEvent, restoreTransientLayer]);
 
+  const hideEverything = useCallback(() => {
+    videosRef.current.forEach((video, id) => {
+      video.pause();
+      setVideoAudioEnabled(audioMixerRef.current, id, false);
+    });
+    widgetAudioRef.current.forEach((audio) => audio.pause());
+
+    liveLayerIdsRef.current = [];
+    activeLayerIdRef.current = null;
+    setLiveLayerIds([]);
+    setActiveLayerId(null);
+    setDirectorFocusedAssetId(null);
+    directorFocusedAssetIdRef.current = null;
+
+    screenOverlayRef.current = { ...screenOverlayRef.current, visible: false };
+    setScreenOverlay(screenOverlayRef.current);
+    assetDeckVisibleRef.current = false;
+    setAssetDeckVisible(false);
+    operatorShelfOpenRef.current = false;
+    setOperatorShelfOpen(false);
+    setOperatorShelfTargetId(null);
+    setOperatorShelfProgress(0);
+
+    widgetsRef.current = widgetsRef.current.map((widget) => ({
+      ...widget,
+      visible: false,
+      open: false,
+      playing: false,
+      active: false
+    }));
+    setWidgets(widgetsRef.current);
+
+    setPointFocus(null);
+    pointFocusTrackerRef.current.reset();
+    widgetPointTrackerRef.current.reset();
+    manipulationTrackerRef.current.reset();
+    palmSignalTrackerRef.current.reset();
+    setManipulation({ mode: "idle", progress: 0 });
+    setPhaseMessage("Canvas cleared — camera remains live");
+    closeVisualTimelineEvent();
+  }, [closeVisualTimelineEvent]);
+
   const startMorphExit = useCallback((assetId: string) => {
     const canvas = outputCanvasRef.current;
     const layer = activeLayerIdRef.current ? resolveLayer(activeLayerIdRef.current, assetsRef.current, scenesRef.current) : null;
@@ -3689,7 +3763,19 @@ export default function App() {
       const asset = assetsRef.current.find((item) => item.id === id);
       const trim = normalizeVideoTrim(asset?.videoTrim, asset?.mediaDuration ?? overlayVideo.duration);
       overlayVideo.currentTime = trim.start;
-      void overlayVideo.play().catch(() => undefined);
+      // Gesture callbacks are not browser user-activation events. Starting an
+      // unmuted media element from one is commonly rejected, which used to leave
+      // an empty focused frame. Start the visual track muted, then enable its
+      // mixer route once playback has actually begun. During recording this also
+      // preserves the asset audio in the composed take.
+      overlayVideo.muted = true;
+      setVideoAudioEnabled(audioMixerRef.current, id, false);
+      void overlayVideo.play().then(() => {
+        const includeAudio = Boolean(asset?.includeAudio);
+        if (!includeAudio) return;
+        overlayVideo.muted = false;
+        setVideoAudioEnabled(audioMixerRef.current, id, true);
+      }).catch(() => undefined);
     });
     const now = performance.now();
     const cueSound = layer.kind === "asset" ? layer.asset.cueSound : layer.scene.cueSound;
@@ -3697,7 +3783,7 @@ export default function App() {
     playCueSound(audioMixerRef.current, cueSound, cueVolume);
     manipulationTrackerRef.current.reset();
     palmSignalTrackerRef.current.reset();
-    manipulationGuardUntilRef.current = now + 700;
+    manipulationGuardUntilRef.current = now + 300;
     setManipulation({ mode: "idle", progress: 0 });
     const nextStack = enforceBudgetForStack([layer.id]);
     liveLayerIdsRef.current = nextStack;
@@ -3839,10 +3925,10 @@ export default function App() {
     const sourceWidth = source instanceof HTMLImageElement ? source.naturalWidth : source instanceof HTMLVideoElement ? source.videoWidth : undefined;
     const sourceHeight = source instanceof HTMLImageElement ? source.naturalHeight : source instanceof HTMLVideoElement ? source.videoHeight : undefined;
     const base = styleFocusBaseRect(styleLayout, asset, sourceWidth, sourceHeight);
-    const transform = initialStyleTransform(base, outputSize.width, outputSize.height);
-    const centeredAsset = { ...asset, transform };
-    commitAssetUpdates(asset.id, { transform });
-    activateStudioLayer({ id: asset.id, kind: "asset", asset: centeredAsset });
+    const transform = retainedStyleTransform(asset.transform, base, outputSize.width, outputSize.height);
+    const positionedAsset = asset.transform ? asset : { ...asset, transform };
+    if (!asset.transform) commitAssetUpdates(asset.id, { transform });
+    activateStudioLayer({ id: asset.id, kind: "asset", asset: positionedAsset });
   }, [activateStudioLayer, commitAssetUpdates, currentVideoStyleWindow, outputSize.height, outputSize.width, restoreTransientLayer, selectScreenOverlay]);
 
   useEffect(() => { focusVideoStyleAssetRef.current = focusVideoStyleAsset; }, [focusVideoStyleAsset]);
@@ -4212,7 +4298,8 @@ export default function App() {
       });
       const triggerResults = handResults;
       const compositeResult = resolveCompositeGesture(handResults);
-      const rawResolution = handResults.find((item) => item.gesture === "fist")
+      const rawResolution = compositeResult?.gesture === "double-fist" ? compositeResult
+        : handResults.find((item) => item.gesture === "fist")
         ?? compositeResult
         ?? triggerResults.filter((item) => item.gesture !== null && item.gesture !== "palm").sort((a, b) => (b.confidence * b.quality) - (a.confidence * a.quality))[0]
         ?? { gesture: null, source: "none" as const, confidence: 0, quality: 1 };
@@ -4274,7 +4361,7 @@ export default function App() {
         if (rawScrollPoint) {
           const mapped = mapControlPointForMirror(rawScrollPoint, mirrorCameraRef.current);
           const beltWindow = currentVideoStyleWindow();
-          const beltLayout = videoStyleLayout(videoStyleRef.current, outputCanvas.width, outputCanvas.height, beltWindow.assets.length, { offset: beltWindow.offset, windowStart: beltWindow.windowStart, total: beltWindow.total });
+          const beltLayout = videoStyleLayout(videoStyleRef.current, outputCanvas.width, outputCanvas.height, beltWindow.assets.length, { offset: beltWindow.offset, windowStart: beltWindow.windowStart, total: beltWindow.total, position: deckPlacementRef.current });
           const beltPoint = { x: mapped.x * outputCanvas.width, y: mapped.y * outputCanvas.height };
           const engagementPadding = Math.min(outputCanvas.width, outputCanvas.height) * (deckScrollEngagedRef.current ? 0.08 : 0.0425);
           const nearBelt = pointNearStyleDeck(beltLayout, beltPoint, engagementPadding);
@@ -4306,12 +4393,16 @@ export default function App() {
           } else {
             deckScrollEngagedRef.current = false;
             deckFlickCandidateRef.current = null;
-            deckScrollControllerRef.current.release(now, maximumDeckOffset);
+            const scroll = deckScrollControllerRef.current.release(now, maximumDeckOffset);
+            assetDeckOffsetRef.current = scroll.offset;
+            if (scroll.moving) setAssetDeckOffset((current) => Math.abs(current - scroll.offset) < 0.006 ? current : scroll.offset);
           }
         } else {
           deckScrollEngagedRef.current = false;
           deckFlickCandidateRef.current = null;
-          deckScrollControllerRef.current.release(now, maximumDeckOffset);
+          const scroll = deckScrollControllerRef.current.release(now, maximumDeckOffset);
+          assetDeckOffsetRef.current = scroll.offset;
+          if (scroll.moving) setAssetDeckOffset((current) => Math.abs(current - scroll.offset) < 0.006 ? current : scroll.offset);
         }
       } else {
         deckScrollEngagedRef.current = false;
@@ -4320,7 +4411,7 @@ export default function App() {
         assetDeckOffsetRef.current = scroll.offset;
         if (scroll.moving) setAssetDeckOffset((current) => Math.abs(current - scroll.offset) < 0.006 ? current : scroll.offset);
       }
-      const swipeDirection = swipeTrackerRef.current.update(palmPoints.length === 1 ? palmPoints[0] : null, now);
+      const swipeDirection = swipeTrackerRef.current.update(palmPoints.length === 1 && !palmCenterOverActive ? palmPoints[0] : null, now);
       const swipeNavigationTriggered = swipeDirection
         ? navigateDirector(swipeDirection === "left" ? 1 : -1)
         : false;
@@ -4399,13 +4490,21 @@ export default function App() {
               && point.y >= liveRect.y && point.y <= liveRect.y + liveRect.height
               ? screenOverlayAsset(screenSettingsRef.current, screenOverlayRef.current)
               : null;
+            const orbitRearm = orbitPointRearmRef.current;
+            const orbitRearmBlocked = Boolean(orbitRearm && !orbitPointRearmed(orbitRearm, point, outputCanvas.width, outputCanvas.height));
+            if (orbitRearm && !orbitRearmBlocked) {
+              orbitPointRearmRef.current = null;
+              pointFocusTrackerRef.current.reset();
+              widgetPointTrackerRef.current.reset();
+            }
             const openOrbitWidget = widgetsRef.current.find((widget) => widget.kind === "orbit" && widget.visible && widget.open);
-            const orbitTarget = liveStickerTarget ? null : openOrbitWidget ? orbitTargetAtPoint(openOrbitWidget, assetsRef.current, scenesRef.current, point, outputCanvas.width, outputCanvas.height) : null;
+            const orbitTarget = liveStickerTarget || orbitRearmBlocked ? null : openOrbitWidget ? orbitTargetAtPoint(openOrbitWidget, assetsRef.current, scenesRef.current, point, outputCanvas.width, outputCanvas.height) : null;
             const orbitTargetAsset = orbitTarget?.kind === "asset" ? orbitTarget.asset : null;
             const orbitTargetScene = orbitTarget?.kind === "scene" ? orbitTarget.scene : null;
             // Desk objects own their pixels. A classic-deck card behind the
             // charm must never steal the point intended to open the orbit.
-            const targetWidget = liveStickerTarget || orbitTarget ? null : widgetAtPoint(widgetsRef.current, point, outputCanvas.width, outputCanvas.height);
+            const pointedWidget = liveStickerTarget || orbitTarget ? null : widgetAtPoint(widgetsRef.current, point, outputCanvas.width, outputCanvas.height);
+            const targetWidget = pointedWidget?.kind === "orbit" && orbitRearmBlocked ? null : pointedWidget;
             const candidateTargetAsset = liveStickerTarget ?? orbitTargetAsset ?? (!targetWidget && assetDeckVisibleRef.current
               ? styleAssetAtPoint(pointStyleLayout, pointStyleAssets, point, focusedStyleAssetId)
               : null);
@@ -4431,12 +4530,21 @@ export default function App() {
             spotlightRectRef.current = null;
             setSpotlight((current) => current ? null : current);
             if (focusUpdate.activate) {
-              if (targetWidget) activateWidgetRef.current(targetWidget);
+              if (targetWidget) {
+                if (targetWidget.kind === "orbit") orbitPointRearmRef.current = { widgetId: targetWidget.id, x: point.x, y: point.y };
+                activateWidgetRef.current(targetWidget);
+              }
               else if (targetAsset) {
-                if (orbitTargetAsset && openOrbitWidget) updateCanvasWidget(openOrbitWidget.id, { open: false });
+                if (orbitTargetAsset && openOrbitWidget) {
+                  orbitPointRearmRef.current = { widgetId: openOrbitWidget.id, x: point.x, y: point.y };
+                  updateCanvasWidget(openOrbitWidget.id, { open: false });
+                }
                 focusVideoStyleAssetRef.current(targetAsset);
               } else if (orbitTargetScene) {
-                if (openOrbitWidget) updateCanvasWidget(openOrbitWidget.id, { open: false });
+                if (openOrbitWidget) {
+                  orbitPointRearmRef.current = { widgetId: openOrbitWidget.id, x: point.x, y: point.y };
+                  updateCanvasWidget(openOrbitWidget.id, { open: false });
+                }
                 const layer = resolveLayer(sceneLayerId(orbitTargetScene.id), assetsRef.current, scenesRef.current);
                 if (layer) activateStudioLayerRef.current(layer);
               }
@@ -4528,15 +4636,16 @@ export default function App() {
           ? { id: SCREEN_OVERLAY_ID, kind: "asset" as const, asset: screenOverlayAsset(screenSettingsRef.current, screenOverlayRef.current) }
           : activeLayerIdRef.current ? resolveLayer(activeLayerIdRef.current, assetsRef.current, scenesRef.current) : null;
         let manipulationUpdate: ManipulationUpdate = { mode: "idle", progress: 0, suppressActivation: false };
-        // One palm never edits placement. Two palms are an explicit resize
-        // intent, keeping the no-teleport rule while restoring scale control.
-        const allowPalmAssetManipulation = palmPoints.length >= 2;
+        // One palm grabs and moves the focused visual; two palms resize it.
+        // The manipulation tracker anchors at acquisition, so movement starts
+        // from the asset's current transform instead of teleporting to the hand.
+        const allowPalmAssetManipulation = palmPoints.length >= 1;
         if (!allowPalmAssetManipulation) manipulationTrackerRef.current.reset();
 
         // Confirmation always outranks manipulation. Previously a live asset
         // could capture the palm before the armed voice cue saw it.
-        // Palm remains available for deck/orbit scrolling, but it no longer
-        // edits an asset transform. This removes the old jump-to-palm effect.
+        // Palm remains available for deck/orbit scrolling when it is not over
+        // the focused visual.
         if (allowPalmAssetManipulation && !pendingVoiceTarget && active && palmPoints.length >= 1 && now >= manipulationGuardUntilRef.current) {
           let base: Rect | null = null;
           let rect: Rect | null = null;
@@ -4556,7 +4665,7 @@ export default function App() {
             if (currentStyleAssets.some((asset) => asset.id === active.asset.id)) {
               const styleLayout = videoStyleLayout(videoStyleRef.current, outputCanvas.width, outputCanvas.height, currentStyleAssets.length, { offset: currentStyleWindow.offset, windowStart: currentStyleWindow.windowStart, total: currentStyleWindow.total });
               base = styleFocusBaseRect(styleLayout, active.asset, sourceWidth, sourceHeight);
-              transformBounds = styleTransformBounds(styleLayout);
+              transformBounds = styleTransformBounds(styleLayout, active.asset);
             } else {
               base = baseAssetRect(outputCanvas.width, outputCanvas.height, active.asset, sourceWidth, sourceHeight);
               const currentLayers = visibleLayersForComposition(liveLayerIdsRef.current
@@ -4650,14 +4759,16 @@ export default function App() {
           }
 
           if (base && currentTransform && manipulationUpdate.transform) {
-            const scaleOnlyTransform = {
-              ...manipulationUpdate.transform,
-              x: currentTransform.x,
-              y: currentTransform.y,
-              rotation: currentTransform.rotation
-            };
-            const target = constrainAssetTransform(outputCanvas.width, outputCanvas.height, base, scaleOnlyTransform, transformBounds);
-            const smoothing = manipulationUpdate.mode === "scaling" ? 0.76 : 0.84;
+            const intendedTransform = manipulationUpdate.mode === "dragging"
+              ? { ...manipulationUpdate.transform, rotation: currentTransform.rotation }
+              : {
+                  ...manipulationUpdate.transform,
+                  x: currentTransform.x,
+                  y: currentTransform.y,
+                  rotation: currentTransform.rotation
+                };
+            const target = constrainAssetTransform(outputCanvas.width, outputCanvas.height, base, intendedTransform, transformBounds);
+            const smoothing = manipulationFollowAlpha(currentTransform, target, manipulationUpdate.mode === "scaling");
             const smoothed = {
               x: currentTransform.x + (target.x - currentTransform.x) * smoothing,
               y: currentTransform.y + (target.y - currentTransform.y) * smoothing,
@@ -4740,12 +4851,16 @@ export default function App() {
           setPhaseMessage("Media deck hidden — camera is full stage");
         }
       }
+      else if (event.trigger === "double-fist") hideEverything();
       else if (event.trigger) activateGestureCue(event.trigger as GestureId);
     };
 
     const infer = async (now: number, source: HTMLVideoElement | VideoFrame = video) => {
       const sourceReady = "readyState" in source ? source.readyState >= 2 : source.displayWidth > 0 && source.displayHeight > 0;
-      if (stopped || busy || now - lastInferenceAt < 90 || !sourceReady) return;
+      // Encoding is the priority during a take. Eight gesture samples per
+      // second remains responsive while returning CPU/GPU time to H.264.
+      const inferenceInterval = recordingRef.current ? 125 : 90;
+      if (stopped || busy || now - lastInferenceAt < inferenceInterval || !sourceReady) return;
       busy = true;
       lastInferenceAt = now;
       try {
@@ -4811,7 +4926,7 @@ export default function App() {
       void processorReader?.cancel().catch(() => undefined);
       processorTrack?.stop();
     };
-  }, [activateStudioLayer, clearArmedVoiceTarget, commitAssetUpdates, commitSceneUpdates, diagnosticScenario, focusStageLayer, granted, hideLayer, navigateDirector, studioReady]);
+  }, [activateStudioLayer, clearArmedVoiceTarget, commitAssetUpdates, commitSceneUpdates, diagnosticScenario, focusStageLayer, granted, hideEverything, hideLayer, navigateDirector, studioReady]);
 
   useEffect(() => {
     if (!isRecording) return;
@@ -4829,24 +4944,9 @@ export default function App() {
     const timer = window.setInterval(() => {
       const next = readMicrophoneLevel(audioMixerRef.current);
       setMicrophoneLevel((current) => Math.abs(current - next) < 0.018 ? current : next);
-      if (recordingRef.current && recordingStartedAtRef.current) {
-        const marker = voiceEmphasisTrackerRef.current.update(next, Date.now() - recordingStartedAtRef.current);
-        if (marker) {
-          voiceEmphasisMarkersRef.current = [...voiceEmphasisMarkersRef.current, marker];
-          setVoiceEmphasisMarkers(voiceEmphasisMarkersRef.current);
-          setLiveWordSpark(marker);
-          if (liveWordSparkTimerRef.current !== null) window.clearTimeout(liveWordSparkTimerRef.current);
-          liveWordSparkTimerRef.current = window.setTimeout(() => {
-            setLiveWordSpark(null);
-            liveWordSparkTimerRef.current = null;
-          }, 950);
-        }
-      }
-    }, 200);
+    }, 300);
     return () => {
       window.clearInterval(timer);
-      if (liveWordSparkTimerRef.current !== null) window.clearTimeout(liveWordSparkTimerRef.current);
-      liveWordSparkTimerRef.current = null;
       setMicrophoneLevel(0);
     };
   }, [studioReady]);
@@ -4872,14 +4972,26 @@ export default function App() {
           setErrorMessage("The audio mixer could not resume. Recording will use the microphone directly.");
         }
       }
+      // A video may have started muted before Record because browsers do not
+      // treat camera gestures as user activation. The Record click is a real
+      // activation, so restore every currently visible video's recording route.
+      const recordingVideoIds = new Set(liveLayerIdsRef.current.flatMap((layerId) => {
+        const layer = resolveLayer(layerId, assetsRef.current, scenesRef.current);
+        return layer ? layerAssetIds(layer) : [];
+      }));
+      recordingVideoIds.forEach((id) => {
+        const video = videosRef.current.get(id);
+        const asset = assetsRef.current.find((item) => item.id === id);
+        if (!video || asset?.kind !== "video") return;
+        video.muted = false;
+        connectVideoAudio(mixer, id, video, Boolean(asset.includeAudio));
+        setVideoAudioEnabled(mixer, id, Boolean(asset.includeAudio));
+        if (video.paused) void video.play().catch(() => undefined);
+      });
       setRecordingBytes(0);
       timelineEventsRef.current = [];
       setTimelineEvents([]);
       setSelectedDirectorEventId(null);
-      voiceEmphasisTrackerRef.current.reset();
-      voiceEmphasisMarkersRef.current = [];
-      setVoiceEmphasisMarkers([]);
-      setLiveWordSpark(null);
       setRecordingMime("");
       setRecordingSignature("");
       setIsFinalizing(false);
@@ -4983,7 +5095,6 @@ export default function App() {
             folderBacked,
             rating: "neutral",
             captionAudioAvailable: Boolean(captionAudio?.samples.length),
-            voiceEmphasis: voiceEmphasisMarkersRef.current.slice(),
             directorTrack: closeOpenDirectorEvents(timelineEventsRef.current, finishedAt - recordingStartedAtRef.current),
             availability: folderBacked ? "ready" : "session"
           };
@@ -5080,6 +5191,19 @@ export default function App() {
     syncStageOutputSize();
   };
 
+  const handleResolutionChange = async (resolution: "720p" | "1080p" | "4k") => {
+    const fps = qualityPreset(qualityRef.current).fps;
+    const next: QualityId = resolution === "4k" ? "4k30" : `${resolution}${fps}` as QualityId;
+    await handleQualityChange(next);
+  };
+
+  const handleFrameRateChange = async (fps: 30 | 60) => {
+    const current = qualityPreset(qualityRef.current);
+    const resolution = current.width >= 3_000 ? "4k" : current.width >= 1_700 ? "1080p" : "720p";
+    const next: QualityId = resolution === "4k" ? "4k30" : `${resolution}${fps}` as QualityId;
+    await handleQualityChange(next);
+  };
+
   const toggleMirrorCamera = () => {
     if (recordingRef.current) return;
     const next = !mirrorCameraRef.current;
@@ -5136,9 +5260,9 @@ export default function App() {
           videosRef.current.set(id, overlayVideo);
           if (audioMixerRef.current) {
             overlayVideo.muted = false;
-            connectVideoAudio(audioMixerRef.current, id, overlayVideo, false);
+            connectVideoAudio(audioMixerRef.current, id, overlayVideo, true);
           }
-          imported.push({ id, name: file.name, kind: "video", sourceUrl, placement: "corner", size: "small", dataView: "table", includeAudio: false, videoPlayback: "once", mediaDuration: duration || undefined, stageBackground: "camera", stageBackgroundColor: "#111111", entranceAnimation: "fade", motionEffect: "none", cameraReflow: "overlay", cueSound: "none", cueVolume: 0.65, ...directorImportDefaults("video", assetsRef.current.length + imported.length, aspectRef.current) });
+          imported.push({ id, name: file.name, kind: "video", sourceUrl, placement: "corner", size: "small", dataView: "table", includeAudio: true, videoPlayback: "once", mediaDuration: duration || undefined, stageBackground: "camera", stageBackgroundColor: "#111111", entranceAnimation: "fade", motionEffect: "none", cameraReflow: "overlay", cueSound: "none", cueVolume: 0.65, ...directorImportDefaults("video", assetsRef.current.length + imported.length, aspectRef.current) });
           if (!diagnostics && projectIdRef.current) await saveAssetBlob(projectIdRef.current, id, file);
         } else if (file.name.toLowerCase().endsWith(".csv") || file.type === "text/csv") {
           imported.push({ id, name: file.name, kind: "csv", rows: parseCsv(await file.text()), placement: "lower", size: "small", dataView: "table", stageBackground: "camera", stageBackgroundColor: "#111111", entranceAnimation: "fade", motionEffect: "none", cameraReflow: "overlay", cueSound: "none", cueVolume: 0.65, ...directorImportDefaults("csv", assetsRef.current.length + imported.length, aspectRef.current) });
@@ -5586,7 +5710,7 @@ export default function App() {
     if (autosaveTimerRef.current !== null) window.clearTimeout(autosaveTimerRef.current);
   }, []);
 
-  const stageStateTitle = phase === "permission" ? "Camera permission" : phase === "loading" ? "Loading MediaPipe" : phase === "stopping" ? "Stopping studio" : phase === "error" ? "Studio error" : "Studio is off";
+  const stageStateTitle = phase === "permission" ? "Allow camera access" : phase === "loading" ? "Starting gestures" : phase === "stopping" ? "Camera is stopping" : phase === "error" ? "Camera unavailable" : "Starting camera";
   const manipulationSubject = activeSceneMemberGeometry?.asset.name
     ? shortName(activeSceneMemberGeometry.asset.name, 18)
     : activeLayer?.kind;
@@ -5630,7 +5754,13 @@ export default function App() {
     ? "Display"
     : "Shared screen";
   const selectVideoStyle = (next: VideoStyleId) => {
-    if (isRecording || isFinalizing || next === videoStyleId) return;
+    if (isRecording || isFinalizing) return;
+    const defaultPlacement = defaultDeckPlacement(next);
+    // Selecting a template always restores that template's true default,
+    // including when the same template was already active with a stale slider.
+    deckPlacementRef.current = defaultPlacement;
+    setDeckPlacement(defaultPlacement);
+    if (next === videoStyleId) return;
     if (activeLayerIdRef.current) hideLayer();
     if (next === "spatial" || next === "split-decks") {
       deckScrollControllerRef.current.reset();
@@ -5640,7 +5770,6 @@ export default function App() {
       setAssetDeckOffset(0);
     }
     setVideoStyleId(next);
-    setDeckPlacement(next === "top-shelf" ? 0.055 : next === "center-shelf" ? 0.425 : next === "bottom-shelf" ? 0.77 : 0.5);
   };
   const createCanvasWidget = (kind: CanvasWidgetKind, position = { x: .5, y: .5 }, sceneId?: string) => {
     const existing = widgetsRef.current.find((widget) => widget.kind === kind && (kind !== "orbit"
@@ -5683,6 +5812,50 @@ export default function App() {
   const updateCanvasWidget = (id: string, updates: Partial<CanvasWidget>) => {
     widgetsRef.current = widgetsRef.current.map((widget) => widget.id === id ? { ...widget, ...updates } : widget);
     setWidgets((current) => current.map((widget) => widget.id === id ? { ...widget, ...updates } : widget));
+  };
+  const beginWidgetPointerEdit = (event: ReactPointerEvent<HTMLElement>, widget: CanvasWidget, mode: "drag" | "scale") => {
+    if (isRecording || isFinalizing || widget.kind === "live") return;
+    const stage = event.currentTarget.closest(".stage-wrap") as HTMLElement | null;
+    if (!stage) return;
+    const bounds = stage.getBoundingClientRect();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    widgetPointerEditRef.current = {
+      pointerId: event.pointerId,
+      mode,
+      widgetId: widget.id,
+      startClientX: event.clientX,
+      startClientY: event.clientY,
+      stageWidth: bounds.width,
+      stageHeight: bounds.height,
+      initial: { x: widget.x, y: widget.y, scale: widget.scale },
+      moved: false
+    };
+    event.preventDefault();
+  };
+  const moveWidgetPointerEdit = (event: ReactPointerEvent<HTMLElement>) => {
+    const session = widgetPointerEditRef.current;
+    if (!session || session.pointerId !== event.pointerId) return;
+    const widget = widgetsRef.current.find((candidate) => candidate.id === session.widgetId);
+    if (!widget) return;
+    const dx = (event.clientX - session.startClientX) / Math.max(1, session.stageWidth);
+    const dy = (event.clientY - session.startClientY) / Math.max(1, session.stageHeight);
+    if (Math.hypot(event.clientX - session.startClientX, event.clientY - session.startClientY) > 3) session.moved = true;
+    const scale = session.mode === "scale" ? Math.min(3, Math.max(.35, session.initial.scale + (dx + dy) * 1.8)) : session.initial.scale;
+    const probe = widgetRect({ ...widget, scale }, outputSize.width, outputSize.height);
+    const halfX = Math.min(.48, probe.width / outputSize.width / 2);
+    const halfY = Math.min(.48, probe.height / outputSize.height / 2);
+    updateCanvasWidget(widget.id, {
+      scale,
+      x: session.mode === "drag" ? Math.min(1 - halfX, Math.max(halfX, session.initial.x + dx)) : Math.min(1 - halfX, Math.max(halfX, widget.x)),
+      y: session.mode === "drag" ? Math.min(1 - halfY, Math.max(halfY, session.initial.y + dy)) : Math.min(1 - halfY, Math.max(halfY, widget.y))
+    });
+    event.preventDefault();
+  };
+  const endWidgetPointerEdit = (event: ReactPointerEvent<HTMLElement>) => {
+    const session = widgetPointerEditRef.current;
+    if (!session || session.pointerId !== event.pointerId) return;
+    widgetPointerEditRef.current = null;
+    if (session.moved) suppressStageClickUntilRef.current = performance.now() + 160;
   };
   const removeCanvasWidget = (widget: CanvasWidget) => {
     const audio = widgetAudioRef.current.get(widget.id);
@@ -5765,6 +5938,7 @@ export default function App() {
   };
   activateWidgetRef.current = activateCanvasWidget;
   const selectedWidget = widgets.find((widget) => widget.id === selectedWidgetId) ?? null;
+  const selectedWidgetRect = selectedWidget?.visible && selectedWidget.kind !== "live" ? widgetRect(selectedWidget, outputSize.width, outputSize.height) : null;
   const importWidgetAudio = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file || !selectedWidget || selectedWidget.kind !== "vinyl") return;
@@ -5822,7 +5996,7 @@ export default function App() {
 
   if (welcomeOpen) return (
     <main className="rii-welcome" data-theme={themeMode}>
-      <input ref={fileInputRef} data-testid="welcome-asset-input" className="visually-hidden" type="file" multiple accept="image/*,video/*,.csv,text/csv,.json,application/json" onChange={(event) => { void handleImport(event); setWelcomeOpen(false); }} />
+      <input ref={fileInputRef} data-testid="welcome-asset-input" className="visually-hidden" type="file" multiple accept="image/*,video/*,.csv,text/csv,.json,application/json" onChange={(event) => { void handleImport(event); setWelcomeOpen(false); setTutorialStep(0); setTutorialOpen(true); }} />
       <div className="rii-welcome-motion" aria-hidden="true">
         <span className="motion-point"><i /> POINT</span>
         <span className="motion-focus"><i /> FOCUS</span>
@@ -5835,7 +6009,7 @@ export default function App() {
         <h1>Welcome to Rii-Flow</h1>
         <p>Create videos that respond to you.</p>
         <button className="rii-welcome-import" onClick={() => fileInputRef.current?.click()}><Upload size={20} /> Import media</button>
-        <button className="rii-welcome-empty" onClick={() => setWelcomeOpen(false)}>Enter studio without media</button>
+        <button className="rii-welcome-empty" onClick={() => { setWelcomeOpen(false); setTutorialStep(0); setTutorialOpen(true); }}>Enter studio without media</button>
         <div><span><Hand size={15} /> Present naturally</span><span><Sparkles size={15} /> Direct visuals live</span><span><Video size={15} /> Record everything</span></div>
       </section>
     </main>
@@ -5845,6 +6019,8 @@ export default function App() {
     <main
       className={`app-shell video-style-studio ${isRecording ? "presentation-recording" : ""}`}
       data-workflow-step="studio"
+      data-tutorial-target={tutorialOpen ? TUTORIAL_STEPS[tutorialStep].target : "none"}
+      data-more-options={simpleExtrasOpen ? "open" : "closed"}
       data-theme={themeMode}
       data-recognizer-generation={recognizerGeneration}
       data-camera-switches={cameraSwitches}
@@ -5891,8 +6067,6 @@ export default function App() {
       data-caption-anchor-x={captionStyle.anchorX.toFixed(3)}
       data-caption-anchor-y={captionStyle.anchorY.toFixed(3)}
       data-word-animation-cues={wordAnimationCues.length}
-      data-voice-emphasis-markers={voiceEmphasisMarkers.length}
-      data-live-word-spark={liveWordSpark?.id ?? "none"}
       data-morph-gesture-progress={morphGestureProgress.toFixed(3)}
       data-morph-exit-asset={morphExitAssetId ?? "none"}
       data-inference-mode={inferenceMode}
@@ -6317,13 +6491,13 @@ export default function App() {
             <summary><Settings2 size={16} /> Advanced settings <ChevronDown size={15} /></summary>
             <label><span>Hold threshold <b>{timing.holdMs} ms</b></span><input aria-label="Hold threshold" type="range" min={MIN_GESTURE_HOLD_MS} max="900" step="10" value={timing.holdMs} onChange={(event) => setTiming((current) => ({ ...current, holdMs: Math.max(MIN_GESTURE_HOLD_MS, Number(event.target.value)) }))} /></label>
             <label><span>Cooldown <b>{timing.cooldownMs} ms</b></span><input type="range" min="450" max="1600" step="50" value={timing.cooldownMs} onChange={(event) => setTiming((current) => ({ ...current, cooldownMs: Number(event.target.value) }))} /></label>
-            <label><span>Palm lock <b>{palmHoldMs} ms</b></span><input type="range" min="150" max="500" step="25" value={palmHoldMs} onChange={(event) => setPalmHoldMs(Number(event.target.value))} /></label>
+            <label><span>Palm lock <b>{palmHoldMs} ms</b></span><input type="range" min="80" max="400" step="20" value={palmHoldMs} onChange={(event) => setPalmHoldMs(Number(event.target.value))} /></label>
             <label className="media-monitor-setting"><span>Monitor enabled video audio <b>{monitorMediaAudio ? "On" : "Off"}</b></span><input type="checkbox" checked={monitorMediaAudio} onChange={toggleMediaMonitoring} /></label>
           </details>
         </aside>
 
         <section className={`center-panel ${aspectId}`} aria-label="Live output stage">
-          <header className="source-toolbar" aria-label="Studio sources and format">
+          <header className="source-toolbar" data-tour-target="devices" aria-label="Studio sources and format">
             <label>
               <span><Camera size={13} /> Camera</span>
               <div className="select-box">
@@ -6342,15 +6516,24 @@ export default function App() {
                 </select><ChevronDown size={14} />
               </div>
             </label>
-            <label>
+            <label className="resolution-field">
               <span><Gauge size={13} /> Quality</span>
               <div className="select-box">
-                <select data-testid="quality-select" value={qualityId} disabled={isRecording || phase === "switching"} onChange={(event) => void handleQualityChange(event.target.value as QualityId)}>
-                  {QUALITY_PRESETS.map((preset) => <option key={preset.id} value={preset.id}>{preset.label}</option>)}
+                <select data-testid="quality-select" value={qualityPreset(qualityId).width >= 3_000 ? "4k" : qualityPreset(qualityId).width >= 1_700 ? "1080p" : "720p"} disabled={isRecording || phase === "switching"} onChange={(event) => void handleResolutionChange(event.target.value as "720p" | "1080p" | "4k")}>
+                  {OUTPUT_RESOLUTIONS.map((resolution) => <option key={resolution.id} value={resolution.id}>{resolution.label}</option>)}
                 </select><ChevronDown size={14} />
               </div>
             </label>
-            <label>
+            <label className="fps-field">
+              <span><Gauge size={13} /> FPS</span>
+              <div className="select-box">
+                <select data-testid="fps-select" value={qualityPreset(qualityId).fps} disabled={isRecording || phase === "switching" || qualityId === "4k30"} onChange={(event) => void handleFrameRateChange(Number(event.target.value) as 30 | 60)}>
+                  <option value="30">30 fps</option>
+                  <option value="60">60 fps</option>
+                </select><ChevronDown size={14} />
+              </div>
+            </label>
+            <label className="aspect-field">
               <span><Monitor size={13} /> Ratio</span>
               <div className="select-box">
                 <select data-testid="aspect-select" value={aspectId} disabled={isRecording || phase === "switching"} onChange={(event) => handleAspectChange(event.target.value as CanvasAspectId)}>
@@ -6456,6 +6639,33 @@ export default function App() {
                 ><Maximize2 size={13} /></button>
               </div>
             )}
+            {selectedWidget && selectedWidgetRect && !isRecording && !isFinalizing && (
+              <div
+                className="stage-widget-editor"
+                data-testid="stage-widget-editor"
+                style={{
+                  left: `${selectedWidgetRect.x / outputSize.width * 100}%`,
+                  top: `${selectedWidgetRect.y / outputSize.height * 100}%`,
+                  width: `${selectedWidgetRect.width / outputSize.width * 100}%`,
+                  height: `${selectedWidgetRect.height / outputSize.height * 100}%`
+                }}
+                title={`Drag ${selectedWidget.title} to move`}
+                onPointerDown={(event) => beginWidgetPointerEdit(event, selectedWidget, "drag")}
+                onPointerMove={moveWidgetPointerEdit}
+                onPointerUp={endWidgetPointerEdit}
+                onPointerCancel={endWidgetPointerEdit}
+              >
+                <span>{shortName(selectedWidget.title, 18)}</span>
+                <button
+                  aria-label={`Resize ${selectedWidget.title}`}
+                  title="Drag to resize"
+                  onPointerDown={(event) => { event.stopPropagation(); beginWidgetPointerEdit(event, selectedWidget, "scale"); }}
+                  onPointerMove={moveWidgetPointerEdit}
+                  onPointerUp={endWidgetPointerEdit}
+                  onPointerCancel={endWidgetPointerEdit}
+                ><Maximize2 size={13} /></button>
+              </div>
+            )}
             {!studioReady && (
               <div className={`stage-empty ${phase === "error" ? "error" : ""}`}>
                 <span>{phase === "loading" ? <LoaderCircle className="spin" size={28} /> : phase === "error" ? <AlertTriangle size={28} /> : <Camera size={28} />}</span>
@@ -6467,7 +6677,6 @@ export default function App() {
             {activeLayer && <div className="activation-notice" key={`${activeLayer.id}-${activatedAt}`}><Radio size={13} /> {shortName(layerName(activeLayer), 30)} activated</div>}
             {morphExitAssetId && <div className="morph-exit-notice"><Sparkles size={14} /> Morphing away</div>}
             {spotlight && spotlight.progress >= 0.35 && <div className="spotlight-notice"><Eye size={14} /><span><small>SPOTLIGHT</small><strong>{shortName(spotlight.name, 24)}</strong></span></div>}
-            {isRecording && liveWordSpark && <div className="voice-word-spark" key={liveWordSpark.id} aria-live="polite"><Sparkles size={15} /><span><small>Word spark</small><strong>Emphasis captured</strong></span></div>}
             {activeScene && activeSceneSoloId && <div className="scene-solo-badge" data-testid="scene-solo"><Eye size={13} /> FOCUS · {shortName(assets.find((asset) => asset.id === activeSceneSoloId)?.name ?? "Asset", 20)}<small>Point again or double-click to restore</small></div>}
             {liveBudgetNotice && <div className="performance-guard-notice" data-testid="performance-guard"><ShieldCheck size={13} />{liveBudgetNotice}</div>}
             {activeLayer && manipulation.mode !== "idle" && (
@@ -6507,13 +6716,12 @@ export default function App() {
                   const end = (event.endMs ?? openTimelineEnd) / timelineDurationMs * 100;
                   return <button key={event.id} type="button" className={`${event.endMs === null ? "live" : ""} ${event.kind} ${selectedDirectorEventId === event.id ? "selected" : ""}`} aria-label={`${event.kind} cue ${event.label}`} title={`${event.kind === "scene" ? "Scene" : "Visual"}: ${event.label}`} style={{ left: `${start}%`, width: `${Math.max(1.5, end - start)}%` }} onClick={() => setSelectedDirectorEventId(event.id)}><span>{event.kind === "scene" ? "SCENE · " : ""}{shortName(event.label, 18)}</span></button>;
                 })}
-                {voiceEmphasisMarkers.map((marker) => <span key={marker.id} className="word-spark-tick" title={`Word spark at ${marker.time.toFixed(1)} seconds`} style={{ left: `${Math.min(99, marker.time * 1_000 / timelineDurationMs * 100)}%` }} />)}
                 {isRecording && <em className="timeline-playhead" style={{ left: `${Math.min(100, openTimelineEnd / timelineDurationMs * 100)}%` }} />}
               </div>
             </div>
           </section>
 
-          <footer className="studio-console" aria-label="Studio status and recording controls">
+          <footer className="studio-console" data-tour-target="record" aria-label="Studio status and recording controls">
             <div className={`audio-console ${microphonePhase}`} title={activeMicrophoneLabel} aria-label={`Microphone level · ${activeMicrophoneLabel}`}>
               <span className="audio-icon"><Mic size={17} /></span>
               <i className="audio-level" data-testid="microphone-level"><b style={{ width: `${Math.max(2, Math.round(microphoneLevel * 100))}%` }} /></i>
@@ -6523,21 +6731,21 @@ export default function App() {
             <div className="transport-actions" aria-label="Recording controls">
               <button
                 className={`primary-studio-action ${studioReady ? "record-ready" : "start-ready"}`}
-                onClick={() => { if (studioReady) void startRecording(); else void startStudio(); }}
-                disabled={isRecording || isFinalizing || captionBusy || (!studioReady && ["permission", "loading", "switching", "stopping"].includes(phase))}
+                onClick={() => { if (studioReady) void startRecording(); else if (phase === "error" || phase === "idle") void startStudio(); }}
+                disabled={isRecording || isFinalizing || captionBusy || (!studioReady && phase !== "error" && phase !== "idle")}
               >
-                {["permission", "loading", "stopping"].includes(phase) || isFinalizing ? <LoaderCircle className="spin" size={21} /> : studioReady ? <Circle size={21} fill="currentColor" /> : <Play size={21} fill="currentColor" />}
-                <span>{isFinalizing ? "Saving" : isRecording ? "Recording" : phase === "stopping" ? "Stopping" : ["permission", "loading", "switching"].includes(phase) ? "Starting" : studioReady ? "Record" : "Start Studio"}</span>
+                {!studioReady || isFinalizing ? <LoaderCircle className={phase === "error" ? "" : "spin"} size={21} /> : <Circle size={21} fill="currentColor" />}
+                <span>{isFinalizing ? "Saving" : isRecording ? "Recording" : studioReady ? "Record" : phase === "error" ? "Retry camera" : "Starting camera…"}</span>
               </button>
-              <button
+              {isRecording && <button
                 className={`stop-button ${studioReady || ["permission", "loading", "switching", "stopping"].includes(phase) ? "studio-stop" : ""}`}
-                onClick={() => { if (isRecording) stopRecording(); else stopStudio(); }}
-                disabled={isFinalizing || (!isRecording && !studioReady && !["permission", "loading", "switching"].includes(phase))}
-                aria-label={isRecording ? "Stop recording" : "Stop studio"}
+                onClick={() => stopRecording()}
+                disabled={isFinalizing}
+                aria-label="Stop recording"
               >
                 <Square size={18} fill="currentColor" />
-                <span>{isRecording ? "Stop" : "Stop Studio"}</span>
-              </button>
+                <span>Stop recording</span>
+              </button>}
             </div>
 
             <div className={`recording-clock ${isRecording ? "active" : recordingSeconds > 0 ? "complete" : "idle"}`} role="timer" aria-label={`Recording duration ${formatDuration(recordingSeconds)}`}>
@@ -6593,7 +6801,94 @@ export default function App() {
             <button className={sidebarPage === "downloads" ? "active" : ""} onClick={() => { setSidebarPage("downloads"); setWidgetPanelOpen(false); }}><Download size={15} /> Downloads</button>
           </nav>
 
-          <section className="creator-recording-destination" aria-label="Recording destination">
+          <section className="guided-production-flow" aria-label="Six-step video workflow">
+            <header><small>YOUR VIDEO PLAN</small><strong>Six steps. One finished video.</strong><p>Only the highlighted step is open. Finish it, then continue.</p></header>
+
+            <section data-tour-target="destination" className={guidedWorkflowStep === 1 ? "current" : guidedWorkflowStep > 1 ? "complete" : "locked"}>
+              <button className="workflow-step-heading" onClick={() => setGuidedWorkflowStep(1)}><b>1</b><span><strong>Choose recording destination</strong><small>{recordingsDirectory?.name ?? "Save takes in this session"}</small></span>{guidedWorkflowStep > 1 && <em><Check size={13} /> Done</em>}</button>
+              {guidedWorkflowStep === 1 && <div className="workflow-step-body workflow-destination"><div><FolderOpen size={16} /><span><strong>{recordingsDirectory?.name ?? "Where should finished videos go?"}</strong><small>{recordingsDirectory ? "Every take saves to this folder" : folderPermission === "unsupported" ? "Folder selection needs Chrome or Edge" : "Choose a folder, or keep takes in this browser session"}</small></span></div><button className="workflow-primary" disabled={isRecording || isFinalizing || folderPermission === "unsupported"} onClick={() => void changeRecordingsFolder()}><FolderOpen size={16} /> {recordingsDirectory ? "Change folder" : "Choose folder"}</button><button className="workflow-continue" onClick={() => setGuidedWorkflowStep(2)}>{recordingsDirectory ? "Use this folder" : "Use session memory"}<ArrowRight size={14} /></button></div>}
+            </section>
+
+            <section className={guidedWorkflowStep === 2 ? "current" : guidedWorkflowStep > 2 ? "complete" : "locked"}>
+              <button className="workflow-step-heading" disabled={guidedWorkflowStep < 2} onClick={() => setGuidedWorkflowStep(2)}><b>2</b><span><strong>Import media</strong><small>{assets.filter((asset) => asset.kind !== "text").length ? `${assets.filter((asset) => asset.kind !== "text").length} files ready` : "Add what you want to show"}</small></span>{guidedWorkflowStep > 2 && <em><Check size={13} /> Done</em>}</button>
+              {guidedWorkflowStep === 2 && <div className="workflow-step-body">
+                <button className="workflow-primary" onClick={() => fileInputRef.current?.click()}><Upload size={16} /> {assets.some((asset) => asset.kind !== "text") ? "Import from another folder" : "Choose photos or videos"}</button>
+                {assets.some((asset) => asset.kind !== "text") && <p className="workflow-gesture-note"><Hand size={14} /><span><strong>Direct gestures are optional.</strong> Pointing, open palm, thumbs-up and fists remain reserved for universal controls.</span></p>}
+                <div className="workflow-media-assignment-list">
+                  {assets.filter((asset) => asset.kind !== "text").map((asset) => <div className="workflow-file-card" key={asset.id}>
+                    <span className="workflow-file"><i>{asset.kind === "video" ? <Video size={13} /> : asset.kind === "image" ? <ImageIcon size={13} /> : <FileSpreadsheet size={13} />}</i><strong title={asset.name}>{shortName(asset.name, 28)}</strong>{(asset.kind === "image" || asset.kind === "video") && <button className="workflow-file-edit" aria-label={`${asset.kind === "video" ? "Trim" : "Crop"} ${asset.name}`} title={asset.kind === "video" ? "Trim video" : "Crop image"} onClick={() => openAssetEditor(asset)}>{asset.kind === "video" ? <Scissors size={13} /> : <Crop size={13} />}<span>{asset.kind === "video" ? "Trim" : "Crop"}</span></button>}<button aria-label={`Remove ${asset.name}`} title="Remove media" onClick={() => removeAsset(asset)}><X size={13} /></button></span>
+                    {asset.kind === "video" && <button className={`workflow-video-audio ${asset.includeAudio ? "active" : ""}`} aria-pressed={Boolean(asset.includeAudio)} onClick={() => toggleVideoAudio(asset)}>{asset.includeAudio ? <Volume2 size={13} /> : <VolumeX size={13} />}<span><strong>{asset.includeAudio ? "Video sound included" : "Video sound muted"}</strong><small>{asset.includeAudio ? "Will be heard in the final recording" : "Click to include it in the recording"}</small></span></button>}
+                    <div className="workflow-assignment-label"><Sparkles size={13} /><span>How this media enters the recording</span></div>
+                    <div className="workflow-file-options">
+                      <label><span>Spawn animation</span><select aria-label={`Spawn animation for ${asset.name}`} value={asset.entranceAnimation ?? "fade"} onChange={(event) => updateAsset(asset.id, { entranceAnimation: event.target.value as EntranceAnimation })}>{ENTRANCE_ANIMATIONS.map((animation) => <option key={animation.id} value={animation.id}>{animation.label}</option>)}</select></label>
+                      <label><span>Spawn sound</span><select aria-label={`Spawn sound for ${asset.name}`} value={asset.cueSound ?? "none"} onChange={(event) => updateAsset(asset.id, { cueSound: event.target.value as CueSound })}>{CUE_SOUNDS.map((sound) => <option key={sound.id} value={sound.id}>{sound.label}</option>)}</select></label>
+                      <label><span>Spawn size</span><select aria-label={`Spawn size for ${asset.name}`} value={asset.size} onChange={(event) => updateAsset(asset.id, { size: event.target.value as AssetSize })}>{ASSET_SIZES.map((size) => <option key={size.id} value={size.id}>{size.label}</option>)}</select></label>
+                      <label><span>Direct gesture</span><select aria-label={`Direct gesture for ${asset.name}`} value={asset.gesture ?? ""} onChange={(event) => assignGesture(asset.id, (event.target.value || undefined) as GestureId | undefined)}><option value="">No direct gesture</option>{STANDALONE_ASSET_GESTURES.map((gesture) => <option key={gesture.id} value={gesture.id}>{gestureOptionLabel(gesture.id, asset.id, asset.gesture)}</option>)}</select></label>
+                    </div>
+                  </div>)}
+                </div>
+                <button className="workflow-continue" disabled={!assets.some((asset) => asset.kind !== "text")} onClick={() => setGuidedWorkflowStep(3)}>Media ready—continue <ArrowRight size={14} /></button>
+              </div>}
+            </section>
+
+            <section data-tour-target="groups" className={guidedWorkflowStep === 3 ? "current" : guidedWorkflowStep > 3 ? "complete" : "locked"}>
+              <button className="workflow-step-heading" disabled={guidedWorkflowStep < 3} onClick={() => setGuidedWorkflowStep(3)}><b>3</b><span><strong>Make groups and widgets</strong><small>{scenes.length ? `${scenes.length} scene${scenes.length === 1 ? "" : "s"} created` : "Group media that belongs together"}</small></span>{guidedWorkflowStep > 3 && <em><Check size={13} /> Done</em>}</button>
+              {guidedWorkflowStep === 3 && <div className="workflow-step-body"><button className="workflow-primary" disabled={assets.filter((asset) => asset.kind !== "text").length < 2} onClick={() => { setSceneBuilderOpen(true); window.setTimeout(() => document.querySelector(".scene-creator-simple")?.scrollIntoView({ behavior: "smooth", block: "start" }), 80); }}><LayoutGrid size={16} /> {scenes.length ? "Make another scene" : "Make a scene"}</button>{scenes.map((scene) => { const assigned = widgets.some((widget) => widget.kind === "orbit" && widget.sceneIds?.includes(scene.id)); const layerId = sceneLayerId(scene.id); return <span className="workflow-scene" key={scene.id}><LayoutGrid size={14} /><strong>{shortName(scene.name, 19)}</strong><span className="workflow-scene-actions"><label><Hand size={12} /><select data-testid={`workflow-scene-gesture-${scene.id}`} aria-label={`Hand gesture for scene ${scene.name}`} value={scene.gesture ?? ""} onChange={(event) => assignSceneGesture(scene.id, (event.target.value || undefined) as GestureId | undefined)}><option value="">No gesture</option>{STANDALONE_ASSET_GESTURES.map((gesture) => <option key={gesture.id} value={gesture.id}>{gestureOptionLabel(gesture.id, layerId, scene.gesture)}</option>)}</select><ChevronDown size={11} /></label><button className={assigned ? "assigned" : ""} onClick={() => { createCanvasWidget("orbit", { x: .5, y: .5 }, scene.id); setSidebarPage("widgets"); setWidgetPanelOpen(true); setWidgetPanelMode("settings"); }}>{assigned ? <><Settings2 size={12} /> Widget</> : <><Plus size={12} /> Widget</>}</button></span></span>; })}<p className="workflow-gesture-note"><Hand size={14} /><span><strong>A scene gesture reveals the complete composition.</strong> Two, three, four fingers and one finger on both hands are available; pointing and thumbs-up stay universal.</span></p><button className="workflow-continue" onClick={() => setGuidedWorkflowStep(4)}>{scenes.length ? "Groups are ready" : "Skip groups"}<ArrowRight size={14} /></button></div>}
+            </section>
+
+            <section className={guidedWorkflowStep === 4 ? "current" : guidedWorkflowStep > 4 ? "complete" : "locked"}>
+              <button className="workflow-step-heading" disabled={guidedWorkflowStep < 4} onClick={() => setGuidedWorkflowStep(4)}><b>4</b><span><strong>Choose deck layout</strong><small>Pick how media waits on screen</small></span>{guidedWorkflowStep > 4 && <em><Check size={13} /> Done</em>}</button>
+              {guidedWorkflowStep === 4 && <div className="workflow-decks"><button onClick={() => { selectVideoStyle("top-shelf"); setGuidedWorkflowStep(5); }}><i className="look-preview clean"><b /><b /><b /></i><strong>Top deck</strong></button><button onClick={() => { selectVideoStyle("right-rail"); setGuidedWorkflowStep(5); }}><i className="look-preview side"><b /><b /></i><strong>Side deck</strong></button><button onClick={() => { selectVideoStyle("spatial"); setGuidedWorkflowStep(5); }}><i className="look-preview free"><b /><b /><b /></i><strong>Freeform</strong></button></div>}
+            </section>
+
+            <section data-tour-target="embellishments" className={guidedWorkflowStep === 5 ? "current" : guidedWorkflowStep > 5 ? "complete" : "locked"}>
+              <button className="workflow-step-heading" disabled={guidedWorkflowStep < 5} onClick={() => setGuidedWorkflowStep(5)}><b>5</b><span><strong>Choose embellishments</strong><small>{widgets.filter((widget) => widget.kind !== "live").length ? `${widgets.filter((widget) => widget.kind !== "live").length} added` : "Music, lists and stickers"}</small></span>{guidedWorkflowStep > 5 && <em><Check size={13} /> Done</em>}</button>
+              {guidedWorkflowStep === 5 && <div className="workflow-embellishments"><button onClick={() => { createCanvasWidget("vinyl"); setSidebarPage("widgets"); }}><Music2 size={17} /><strong>Music</strong></button><button onClick={() => { createCanvasWidget("bullets"); setSidebarPage("widgets"); }}><ListVideo size={17} /><strong>List</strong></button><button onClick={() => { createCanvasWidget("sticker"); setSidebarPage("widgets"); }}><Sparkles size={17} /><strong>Sticker</strong></button><button className="workflow-continue" onClick={() => setGuidedWorkflowStep(6)}>{widgets.some((widget) => widget.kind !== "live") ? "Embellishments ready" : "Keep it clean"}<ArrowRight size={14} /></button></div>}
+            </section>
+
+            <section className={guidedWorkflowStep === 6 ? "current" : "locked"}>
+              <button className="workflow-step-heading" disabled={guidedWorkflowStep < 6} onClick={() => setGuidedWorkflowStep(6)}><b>6</b><span><strong>Make the video</strong><small>{studioReady ? "Camera ready—press Record" : "Camera starts automatically"}</small></span>{studioReady && <em><Check size={13} /> Ready</em>}</button>
+              {guidedWorkflowStep === 6 && <div className="simple-record-location"><ArrowDown size={16} /><span><strong>{studioReady ? "Press Record below the canvas" : "Camera and gestures are starting automatically"}</strong><small>Talk naturally and use your gestures</small></span></div>}
+            </section>
+
+            <section className="workflow-workspace-tools" aria-label="Workspace tools"><label><span><strong>Move dock</strong><small>Slide it to a comfortable position</small></span><input type="range" min={videoStyleId.includes("shelf") ? "0.04" : "0"} max={videoStyleId.includes("shelf") ? "0.8" : "1"} step="0.01" value={deckPlacement} disabled={videoStyleId === "spatial"} onChange={(event) => setDeckPlacement(Number(event.target.value))} /></label><div><span><strong>Workspace editor</strong><small>Edit scenes or clear the project</small></span><button onClick={() => setSceneBuilderOpen(true)}><LayoutGrid size={14} /> Open editor</button><button className="danger" disabled={isRecording || isFinalizing || (!assets.length && !scenes.length && !widgets.length)} onClick={clearWorkspace}><Trash2 size={14} /> Clear</button></div></section>
+          </section>
+
+          {simpleExtrasOpen && sidebarPage === "setup" && <section className="manual-settings-panel" aria-label="Manual controls">
+            <header><span><small>OPTIONAL</small><strong>Manual controls</strong><p>Nothing here is required to make a video.</p></span><button aria-label="Close manual controls" onClick={() => setSimpleExtrasOpen(false)}><X size={17} /></button></header>
+            <section><header><HardDrive size={16} /><span><strong>Recording folder</strong><small>{recordingsDirectory?.name ?? "Session memory"}</small></span></header><button className="manual-wide-action" disabled={isRecording || isFinalizing} onClick={() => void changeRecordingsFolder()}><FolderOpen size={15} /> {recordingsDirectory ? "Change folder" : "Choose folder"}</button></section>
+            <section><header><Monitor size={16} /><span><strong>Video output</strong><small>Standard widescreen recording</small></span></header><div className="manual-field-grid"><label><span>Quality</span><select value={qualityId} disabled={isRecording} onChange={(event) => void handleQualityChange(event.target.value as QualityId)}>{QUALITY_PRESETS.map((preset) => <option key={preset.id} value={preset.id}>{preset.label}</option>)}</select></label><div className="manual-fixed-ratio"><span>Canvas</span><strong>16:9 widescreen</strong></div></div><button className={`manual-toggle ${mirrorCamera ? "active" : ""}`} onClick={() => setMirrorCamera((value) => !value)}><FlipHorizontal2 size={15} /><span><strong>Mirror camera</strong><small>{mirrorCamera ? "On" : "Off"}</small></span><i /></button></section>
+            <section><header><Layers3 size={16} /><span><strong>Deck behavior</strong><small>How the deck appears while presenting</small></span></header><div className="manual-choice-row">{ASSET_DECK_MODES.map((mode) => <button key={mode.id} className={assetDeckMode === mode.id ? "active" : ""} onClick={() => chooseAssetDeckMode(mode.id)}>{mode.id === "always" ? <Eye size={14} /> : <Hand size={14} />}{mode.label}</button>)}</div>{videoStyleId !== "spatial" && <label className="manual-range"><span>Deck position</span><input type="range" min={videoStyleId.includes("shelf") ? "0.04" : "0"} max={videoStyleId.includes("shelf") ? "0.8" : "1"} step="0.01" value={deckPlacement} onChange={(event) => setDeckPlacement(Number(event.target.value))} /></label>}</section>
+            <section><header><Settings2 size={16} /><span><strong>Workspace</strong><small>Project-level actions</small></span></header><div className="manual-choice-row"><button onClick={() => setSceneBuilderOpen(true)}><LayoutGrid size={14} /> Edit scenes</button><button className="danger" disabled={isRecording || isFinalizing || (!assets.length && !scenes.length && !widgets.length)} onClick={clearWorkspace}><Trash2 size={14} /> Clear workspace</button></div></section>
+          </section>}
+
+          <section className="simple-create-flow" aria-labelledby="simple-create-title">
+            <header><small>START HERE</small><strong id="simple-create-title">Make a video</strong><p>Three quick choices. You can change any of them later.</p></header>
+
+            <section className="simple-create-step" data-tour-target="media">
+              <header><b>1</b><span><strong>Add what you want to show</strong><small>Photos and videos work best</small></span>{assets.length > 0 && <em><Check size={12} /> {assets.filter((asset) => asset.kind !== "text").length}</em>}</header>
+              <button className="simple-import" disabled={isFinalizing} onClick={() => fileInputRef.current?.click()}><Upload size={17} /> {assets.length ? "Add more media" : "Choose photos or videos"}</button>
+              {assets.filter((asset) => asset.kind !== "text").length > 0 && <div className="simple-media-list">{assets.filter((asset) => asset.kind !== "text").slice(0, 4).map((asset) => <span key={asset.id}><i>{asset.kind === "image" ? <ImageIcon size={13} /> : asset.kind === "video" ? <Video size={13} /> : <FileSpreadsheet size={13} />}</i><strong>{shortName(asset.name, 22)}</strong><button aria-label={`Remove ${asset.name}`} onClick={() => removeAsset(asset)}><X size={13} /></button></span>)}{assets.filter((asset) => asset.kind !== "text").length > 4 && <small>+{assets.filter((asset) => asset.kind !== "text").length - 4} more</small>}</div>}
+            </section>
+
+            <section className="simple-create-step simple-look-step" data-tour-target="layout">
+              <header><b>2</b><span><strong>Choose a look</strong><small>No design knowledge needed</small></span><em><Check size={12} /> Set</em></header>
+              <div className="simple-look-grid">
+                <button className={videoStyleId === "center-shelf" || videoStyleId === "top-shelf" ? "active" : ""} disabled={isRecording || isFinalizing} onClick={() => selectVideoStyle("top-shelf")}><i className="look-preview clean"><b /><b /><b /></i><span><strong>Clean</strong><small>Media deck at the top</small></span></button>
+                <button className={videoStyleId === "right-rail" || videoStyleId === "left-rail" ? "active" : ""} disabled={isRecording || isFinalizing} onClick={() => selectVideoStyle("right-rail")}><i className="look-preview side"><b /><b /></i><span><strong>Side by side</strong><small>You and media together</small></span></button>
+                <button className={videoStyleId === "spatial" ? "active" : ""} disabled={isRecording || isFinalizing} onClick={() => selectVideoStyle("spatial")}><i className="look-preview free"><b /><b /><b /></i><span><strong>Freeform</strong><small>Place things yourself</small></span></button>
+              </div>
+            </section>
+
+            <section className="simple-create-step simple-ready-step" data-tour-target="record">
+              <header><b>3</b><span><strong>{isRecording ? "You’re recording" : studioReady ? "You’re ready to record" : "Start your camera"}</strong><small>{isRecording ? "Everything on the canvas is being captured" : studioReady ? "Use gestures naturally while you talk" : "Use the large button below the canvas"}</small></span>{studioReady && <em><Check size={12} /> Ready</em>}</header>
+              <div className="simple-record-location"><ArrowDown size={16} /><span><strong>{isRecording ? "Stop when you’re finished" : studioReady ? "Press Record below the canvas" : "Press Start Studio below the canvas"}</strong><small>That is the only recording control you need</small></span></div>
+            </section>
+
+            <button className={`simple-more-toggle ${simpleExtrasOpen ? "active" : ""}`} onClick={() => setSimpleExtrasOpen((open) => !open)}><Settings2 size={16} /><span><strong>{simpleExtrasOpen ? "Hide extra options" : "More options"}</strong><small>Folder, detailed layouts, scenes and controls</small></span><ChevronDown size={15} /></button>
+          </section>
+
+          <section className="creator-recording-destination" data-tour-target="save" aria-label="Recording destination">
             <div className={`workspace-destination ${folderPermission === "granted" ? "ready" : "warning"}`}>
               <span><HardDrive size={18} /></span>
               <div><small>Recording destination</small><strong>{recordingsDirectory?.name ?? "Session memory"}</strong><em>{folderPermission === "granted" ? "Every take saves here as MP4" : recordingsDirectory ? "Reconnect or choose another folder" : folderPermission === "unsupported" ? "Folder selection needs Chrome or Edge" : "Choose where finished recordings are saved"}</em></div>
@@ -6601,15 +6896,9 @@ export default function App() {
             </div>
           </section>
 
-          <div className="jarvis-command-strip" aria-label="Gesture quick guide">
-            <header><span><strong>Gesture quick guide</strong><small>Keep your hand inside the camera view</small></span><em>4 controls</em></header>
-            <span><b>01</b><span><strong>Point and hold</strong><small>Aim your index fingertip at an item to open it</small></span></span>
-            <span><b>02</b><span><strong>Give a thumbs-up</strong><small>Show or hide the classic media deck</small></span></span>
-            <span><b>03</b><span><strong>Open palm and flick</strong><small>Move sideways near a deck or orbit to scroll</small></span></span>
-            <span><b>04</b><span><strong>Make a fist</strong><small>Close the selected visual or open deck</small></span></span>
-          </div>
+          <button className="tutorial-launcher" type="button" onClick={() => { setTutorialStep(0); setTutorialOpen(true); }}><span><HelpCircle size={19} /></span><span><strong>New here?</strong><small>Take the 2-minute guided tour</small></span><ArrowRight size={16} /></button>
 
-          <section className="style-media-panel" aria-labelledby="style-media-title">
+          <section className="style-media-panel" data-tour-target="media" aria-labelledby="style-media-title">
             <header>
               <span><small>Visual library</small><strong id="style-media-title">Your media</strong></span>
               <div className="workspace-actions"><button type="button" className="scene-workspace-action" onClick={() => setSceneBuilderOpen((open) => !open)}><span><LayoutGrid size={16} /></span><span><strong>{sceneBuilderOpen ? "Close scene builder" : "Build a scene"}</strong><small>Group media into one reusable layout</small></span></button><button type="button" className="clear-workspace" title="Remove every imported visual, saved scene, and widget from this workspace" disabled={isRecording || isFinalizing || (!assets.length && !scenes.length && !widgets.length)} onClick={clearWorkspace}><span><Trash2 size={17} /></span><span><strong>Clear entire workspace</strong><small>Remove all media, scenes and widgets</small></span></button></div>
@@ -6682,14 +6971,14 @@ export default function App() {
               ))}
               {!screenSettings && <article className="style-screen-add">
                 <span><Monitor size={20} /></span>
-                <span><strong>Add screen recording</strong><small>{studioReady ? "A tab, game, app, or display" : "Start Studio first"}</small></span>
+                <span><strong>Add screen recording</strong><small>{studioReady ? "A tab, game, app, or display" : "Available when the camera is ready"}</small></span>
                 <button disabled={!screenCaptureSupported || screenPhase === "permission" || !studioReady || isRecording} onClick={() => void startScreenShare()}>{screenPhase === "permission" ? <LoaderCircle className="spin" size={14} /> : <Plus size={14} />} Share</button>
               </article>}
             </div>
             {hiddenStyleAssetCount > 0 && <p className="style-limit-note"><ShieldCheck size={13} /> {videoStyleId === "spatial" ? `Freeform starts with four visible items. Open another from the library whenever you need it.` : videoStyleId === "split-decks" ? `This is a fixed four-card layout. Choose a belt layout to reach ${hiddenStyleAssetCount} more.` : `Four cards visible on stage. Flick near the belt to reach ${hiddenStyleAssetCount} more.`}</p>}
           </section>
 
-          <section className="video-style-panel" aria-labelledby="video-style-title">
+          <section className="video-style-panel" data-tour-target="layout" aria-labelledby="video-style-title">
             <header><span><small>Layout</small><strong id="video-style-title">Choose a video layout</strong></span><em>{isRecording ? "Locked while recording" : "Tap the picture you want"}</em></header>
             <div className="video-style-grid">
               {VIDEO_STYLES.map((style) => (
@@ -7013,18 +7302,19 @@ export default function App() {
                           {captionStyle.preset === "highlight" && <label><span>Highlight</span><input aria-label="Caption highlight colour" type="color" value={captionStyle.accentColor} onChange={(event) => updateCaptionStyle({ accentColor: event.target.value })} /></label>}
                           <div className="caption-coordinate-controls"><span>Exact position</span><label><b>X</b><input aria-label="Caption horizontal position percent" type="number" min="4" max="96" step="1" value={Math.round(captionStyle.anchorX * 100)} onChange={(event) => setCaptionCoordinate("anchorX", Number(event.target.value))} /><em>%</em></label><label><b>Y</b><input aria-label="Caption vertical position percent" type="number" min="6" max="94" step="1" value={Math.round(captionStyle.anchorY * 100)} onChange={(event) => setCaptionCoordinate("anchorY", Number(event.target.value))} /><em>%</em></label></div>
                         </div>
-                        <div className="caption-segment-list" aria-label="Editable caption phrases">
-                          {captionSegments.map((segment) => <label key={segment.id} className={captionPreviewSegment?.id === segment.id ? "active" : ""}><button type="button" aria-label={`Preview caption at ${segment.start.toFixed(1)} seconds`} onClick={() => previewCaptionSegment(segment)}>{segment.start.toFixed(1)}s</button><textarea value={segment.text} rows={2} onChange={(event) => updateCaptionSegment(segment.id, event.target.value)} /></label>)}
+                        <div className="caption-segment-list" aria-label="Editable caption phrases and timing">
+                          {captionSegments.map((segment) => <div key={segment.id} className={`caption-segment-editor ${captionPreviewSegment?.id === segment.id ? "active" : ""}`}><button type="button" aria-label={`Preview caption at ${segment.start.toFixed(2)} seconds`} onClick={() => previewCaptionSegment(segment)}><Play size={13} /> Preview</button><div><textarea aria-label={`Caption text at ${segment.start.toFixed(2)} seconds`} value={segment.text} rows={2} onChange={(event) => updateCaptionSegment(segment.id, event.target.value)} /><div className="caption-timing-fields"><label><span>Show at</span><input aria-label={`Caption start time for ${segment.text}`} type="number" min="0" max={finishDuration} step="0.05" value={Number(segment.start.toFixed(2))} onChange={(event) => updateCaptionTiming(segment.id, "start", Number(event.target.value))} /><em>sec</em></label><label><span>Hide at</span><input aria-label={`Caption end time for ${segment.text}`} type="number" min="0.05" max={finishDuration} step="0.05" value={Number(segment.end.toFixed(2))} onChange={(event) => updateCaptionTiming(segment.id, "end", Number(event.target.value))} /><em>sec</em></label></div></div></div>)}
                         </div>
                       </>
                     )}
                   </>
                 )}
-                {captionSegments.length > 0 && <section className="word-animation-panel" aria-label="Automatic word animations">
-                  <header><span><Sparkles size={17} /><span><strong>Word animations</strong><small>Chosen from your vocal emphasis</small></span></span><b>{wordAnimationCues.length}</b></header>
+                {captionSegments.length > 0 && <section className="word-animation-panel" aria-label="Punch lines and word animations">
+                  <header><span><Sparkles size={17} /><span><strong>Punch lines & word animations</strong><small>Change exactly when each one appears</small></span></span><b>{wordAnimationCues.length}</b></header>
                   {wordAnimationCues.length > 0 ? <div className="word-animation-points">
                     {wordAnimationCues.map((cue) => <span key={cue.id} className={previewWordAnimation?.id === cue.id ? "active" : ""}>
-                      <button type="button" aria-label={`Preview ${cue.text} animation at ${cue.start.toFixed(1)} seconds`} onClick={() => seekWordAnimation(cue)}><small>{cue.start.toFixed(1)}s</small><strong>{cue.text}</strong><em>{cue.animation}</em></button>
+                      <button type="button" aria-label={`Preview ${cue.text} animation at ${cue.start.toFixed(2)} seconds`} onClick={() => seekWordAnimation(cue)}><small><Play size={11} /> Preview</small><strong>{cue.text}</strong><em>{cue.animation}</em></button>
+                      <div className="word-timing-fields"><label><span>Show</span><input aria-label={`Punch line start time for ${cue.text}`} type="number" min="0" max={finishDuration} step="0.05" value={Number(cue.start.toFixed(2))} onChange={(event) => updateWordAnimationTiming(cue.id, "start", Number(event.target.value))} /></label><label><span>Hide</span><input aria-label={`Punch line end time for ${cue.text}`} type="number" min="0.05" max={finishDuration} step="0.05" value={Number(cue.end.toFixed(2))} onChange={(event) => updateWordAnimationTiming(cue.id, "end", Number(event.target.value))} /></label></div>
                       <button type="button" aria-label={`Remove ${cue.text} animation`} title="Remove animation" onClick={() => removeWordAnimation(cue.id)}><X size={14} /></button>
                     </span>)}
                   </div> : <button className="restore-word-animations" type="button" onClick={restoreWordAnimations}><RotateCcw size={14} /> Restore suggested animations</button>}
@@ -7037,6 +7327,17 @@ export default function App() {
           </section>
         </div>
       )}
+
+      {tutorialOpen && <div className="guided-tour" role="dialog" aria-modal="true" aria-labelledby="guided-tour-title">
+        <button className="guided-tour-scrim" aria-label="Close guided tour" onClick={() => setTutorialOpen(false)} />
+        <section>
+          <header><span><small>{TUTORIAL_STEPS[tutorialStep].eyebrow}</small><strong id="guided-tour-title">{TUTORIAL_STEPS[tutorialStep].title}</strong></span><button aria-label="Close tutorial" onClick={() => setTutorialOpen(false)}><X size={18} /></button></header>
+          {TUTORIAL_STEPS[tutorialStep].target === "gestures" && <div className="tour-gesture-grid"><span><b>☝</b><strong>Point + hold</strong><small>Open an item</small></span><span><b>👍</b><strong>Thumbs-up</strong><small>Open the deck</small></span><span><b>✋</b><strong>Open palm</strong><small>Flick to scroll</small></span><span><b>✊</b><strong>Fist</strong><small>Close visual</small></span></div>}
+          <p>{TUTORIAL_STEPS[tutorialStep].body}</p>
+          <div className="guided-tour-progress" aria-label={`Tutorial step ${tutorialStep + 1} of ${TUTORIAL_STEPS.length}`}>{TUTORIAL_STEPS.map((step, index) => <i key={step.target} className={index <= tutorialStep ? "active" : ""} />)}</div>
+          <footer><button className="tour-skip" onClick={() => setTutorialOpen(false)}>Skip tour</button><span>{tutorialStep + 1} / {TUTORIAL_STEPS.length}</span>{tutorialStep > 0 && <button className="tour-back" onClick={() => setTutorialStep((step) => step - 1)}>Back</button>}<button className="tour-next" onClick={() => { if (tutorialStep === TUTORIAL_STEPS.length - 1) setTutorialOpen(false); else setTutorialStep((step) => step + 1); }}>{tutorialStep === TUTORIAL_STEPS.length - 1 ? <><Check size={16} /> Start creating</> : <>Next <ArrowRight size={16} /></>}</button></footer>
+        </section>
+      </div>}
 
       {errorMessage && <div className="error-toast" role="alert"><AlertTriangle size={15} /><span>{errorMessage}</span><button onClick={() => setErrorMessage(null)}>Dismiss</button></div>}
     </main>

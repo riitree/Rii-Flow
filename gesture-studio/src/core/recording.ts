@@ -22,8 +22,9 @@ export function masterRecorderOptions(mimeType: string, videoBitsPerSecond: numb
     mimeType,
     videoBitsPerSecond,
     audioBitsPerSecond: MASTER_AUDIO_BITRATE,
-    // Frequent keyframes make high-bitrate footage easier to seek and cut in an editor.
-    videoKeyFrameIntervalDuration: 1_000
+    // A two-second GOP keeps seeking responsive while giving H.264 enough
+    // temporal context for cleaner frames and lower encoder pressure.
+    videoKeyFrameIntervalDuration: 2_000
   };
 }
 

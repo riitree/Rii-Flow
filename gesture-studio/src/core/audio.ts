@@ -27,10 +27,19 @@ type AudioContextHost = typeof globalThis & {
 };
 
 export const AUDIO_MIX_LEVELS = {
-  recordingHeadroom: 0.9,
+  // Voice is the primary recording signal. This leaves enough summing
+  // headroom for a full microphone peak plus controlled background music.
+  recordingHeadroom: 0.8,
   cueRecording: 0.38,
-  cueMonitor: 0.5
+  cueMonitor: 0.5,
+  mediaWithMicrophone: 0.42,
+  backgroundWithMicrophone: 0.22
 } as const;
+
+export function recordingRouteGain(hasMicrophone: boolean, background: boolean) {
+  if (!hasMicrophone) return 1;
+  return background ? AUDIO_MIX_LEVELS.backgroundWithMicrophone : AUDIO_MIX_LEVELS.mediaWithMicrophone;
+}
 
 export async function createStudioAudioMixer(): Promise<StudioAudioMixer | null> {
   const host = globalThis as AudioContextHost;
@@ -91,6 +100,7 @@ export function connectMicrophone(mixer: StudioAudioMixer | null, stream: MediaS
     : null;
   mixer.microphoneSource?.connect(mixer.microphoneAnalyser);
   applyCueMonitoring(mixer);
+  mixer.videoRoutes.forEach((route) => applyVideoRoute(mixer, route));
 }
 
 /** Shared-screen audio is recorded into the master mix but is not routed back
@@ -106,8 +116,14 @@ export function connectScreenAudio(mixer: StudioAudioMixer | null, stream: Media
 }
 
 function applyVideoRoute(mixer: StudioAudioMixer, route: VideoAudioRoute) {
-  route.recordingGain.gain.value = route.enabled ? 1 : 0;
-  route.monitorGain.gain.value = route.enabled && (route.monitorAlways || mixer.monitorMedia) ? 1 : 0;
+  route.recordingGain.gain.value = route.enabled
+    ? recordingRouteGain(Boolean(mixer.microphoneSource), route.monitorAlways)
+    : 0;
+  // Do not automatically play persistent music through speakers beside a live
+  // microphone: browser echo cancellation can then chop the primary voice.
+  // Explicit media monitoring remains available for headphone workflows.
+  const safeAutomaticMonitor = route.monitorAlways && !mixer.microphoneSource;
+  route.monitorGain.gain.value = route.enabled && (safeAutomaticMonitor || mixer.monitorMedia) ? 1 : 0;
 }
 
 export function connectVideoAudio(mixer: StudioAudioMixer | null, id: string, video: HTMLMediaElement, enabled: boolean, monitorAlways = false) {

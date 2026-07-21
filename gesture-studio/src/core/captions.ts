@@ -126,6 +126,13 @@ export function activeCaptionAt(segments: readonly CaptionSegment[], time: numbe
   return segments.find((segment) => time >= segment.start && time < segment.end) ?? null;
 }
 
+export function retimeCaptionSegment(segment: CaptionSegment, start: number, end: number, durationSeconds: number) {
+  const duration = Math.max(0.05, Number.isFinite(durationSeconds) ? durationSeconds : segment.end);
+  const safeStart = clamp(Number.isFinite(start) ? start : segment.start, 0, Math.max(0, duration - 0.05));
+  const safeEnd = clamp(Number.isFinite(end) ? end : segment.end, safeStart + 0.05, duration);
+  return { ...segment, start: safeStart, end: safeEnd };
+}
+
 export function drawCaption(
   context: CanvasRenderingContext2D,
   width: number,

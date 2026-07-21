@@ -977,7 +977,11 @@ function drawVideoStyle(
   _screenOverlay: ScreenOverlaySettings | null,
   backgroundOverlay?: () => void
 ) {
-  const assets = style.assets.slice(0, 5);
+  // `videoStyleWindow` already returns a small virtualized window and may append
+  // the focused asset when it lives just outside that window. Do not truncate it
+  // again here: doing so left the layer active (and its video playing) while the
+  // compositor had no corresponding asset to draw.
+  const assets = style.assets;
   const layout = videoStyleLayout(style.id, canvas.width, canvas.height, assets.length, {
     offset: style.deckScrollOffset ?? 0,
     windowStart: style.deckWindowStart ?? 0,
@@ -1044,7 +1048,7 @@ function drawVideoStyle(
   }
   const sourceSize = styleAssetSourceSize(focusedAsset, media, focusedLiveSource);
   const base = styleFocusBaseRect(layout, focusedAsset, sourceSize.width, sourceSize.height);
-  const bounds = styleTransformBounds(layout);
+  const bounds = styleTransformBounds(layout, focusedAsset);
   let output = applyAssetTransform(canvas.width, canvas.height, base, focusedAsset.transform, bounds);
   const entrance = entranceAnimationFrame(focusedAsset.entranceAnimation ?? "pop", Math.max(0, now - (activationTimes[focusedAsset.id] ?? now)));
   output = {
@@ -1059,7 +1063,7 @@ function drawVideoStyle(
     context.beginPath();
     context.rect(layout.focusBounds.x, layout.focusBounds.y, layout.focusBounds.width, layout.focusBounds.height);
     context.clip();
-  } else {
+  } else if (!(focusedAsset.kind === "video" && focusedAsset.size === "full")) {
     context.shadowColor = "rgba(0,0,0,.5)";
     context.shadowBlur = Math.max(18, canvas.width * 0.018);
   }
@@ -1071,6 +1075,7 @@ function drawVideoStyle(
   context.fillStyle = "rgba(7,9,14,.92)";
   context.fillRect(output.x, output.y, output.width, output.height);
   if (focusedLiveSource) drawLiveSourceInRect(context, focusedLiveSource, output, false);
+  else if (focusedAsset.kind === "video" && focusedAsset.size === "full") drawMediaCoverInRect(context, focusedAsset, output, media);
   else if (layout.constrainedFocus) drawMediaCoverInRect(context, focusedAsset, output, media);
   else drawMediaInRect(context, focusedAsset, output, media);
   context.restore();
