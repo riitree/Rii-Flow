@@ -32,21 +32,23 @@ const OPTIONS = {
   cannedGesturesClassifierOptions: { scoreThreshold: 0.34 }
 };
 
+const publicAsset = (path: string) => `${import.meta.env.BASE_URL}${path}`;
+
 class MainThreadGestureClient implements GestureInferenceClient {
   readonly mode = "main-thread" as const;
   private recognizer: GestureRecognizer | null = null;
 
   async initialize() {
-    const files = await FilesetResolver.forVisionTasks("/mediapipe/wasm");
+    const files = await FilesetResolver.forVisionTasks(publicAsset("mediapipe/wasm"));
     try {
       this.recognizer = await GestureRecognizer.createFromOptions(files, {
         ...OPTIONS,
-        baseOptions: { modelAssetPath: "/models/gesture_recognizer.task", delegate: "GPU" }
+        baseOptions: { modelAssetPath: publicAsset("models/gesture_recognizer.task"), delegate: "GPU" }
       });
     } catch {
       this.recognizer = await GestureRecognizer.createFromOptions(files, {
         ...OPTIONS,
-        baseOptions: { modelAssetPath: "/models/gesture_recognizer.task" }
+        baseOptions: { modelAssetPath: publicAsset("models/gesture_recognizer.task") }
       });
     }
   }
@@ -121,7 +123,11 @@ class WorkerGestureClient implements GestureInferenceClient {
         resolve: () => { window.clearTimeout(timeout); resolve(); },
         reject: (error) => { window.clearTimeout(timeout); reject(error); }
       };
-      worker.postMessage({ type: "init", wasmRoot: "/mediapipe/wasm", modelPath: "/models/gesture_recognizer.task" });
+      worker.postMessage({
+        type: "init",
+        wasmRoot: publicAsset("mediapipe/wasm"),
+        modelPath: publicAsset("models/gesture_recognizer.task")
+      });
     });
   }
 

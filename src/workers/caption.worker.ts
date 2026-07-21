@@ -5,12 +5,13 @@ import { captionSegmentsFromText, groupCaptionWords, type CaptionWord } from "..
 
 env.allowRemoteModels = false;
 env.allowLocalModels = true;
-env.localModelPath = "/models/";
+const publicAsset = (path: string) => `${import.meta.env.BASE_URL}${path}`;
+env.localModelPath = publicAsset("models/");
 const wasmBackend = env.backends.onnx.wasm;
 if (wasmBackend) {
   wasmBackend.wasmPaths = {
-    mjs: "/ort/ort-wasm-simd-threaded.asyncify.mjs",
-    wasm: "/ort/ort-wasm-simd-threaded.asyncify.wasm"
+    mjs: publicAsset("ort/ort-wasm-simd-threaded.asyncify.mjs"),
+    wasm: publicAsset("ort/ort-wasm-simd-threaded.asyncify.wasm")
   };
   wasmBackend.numThreads = 1;
 }

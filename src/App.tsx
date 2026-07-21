@@ -743,20 +743,20 @@ export default function App() {
   const provider = useMemo<MediaProvider>(
     () => diagnostics ? createSyntheticMediaProvider(
       diagnosticScenario === "streaming-speech"
-        ? { speechFixtureUrl: "/diagnostics/pull-up-dashboard.mp3", speechFixtureDelayMs: 6_000 }
+        ? { speechFixtureUrl: `${import.meta.env.BASE_URL}diagnostics/pull-up-dashboard.mp3`, speechFixtureDelayMs: 6_000 }
         : diagnosticScenario === "streaming-multi"
-          ? { speechFixtureUrl: "/diagnostics/compare-dashboard-product.mp3", speechFixtureDelayMs: 6_000 }
+          ? { speechFixtureUrl: `${import.meta.env.BASE_URL}diagnostics/compare-dashboard-product.mp3`, speechFixtureDelayMs: 6_000 }
           : diagnosticScenario === "streaming-sequence"
             ? { speechFixtures: [
-              { url: "/diagnostics/pull-up-dashboard.mp3", delayMs: 6_000 },
-              { url: "/diagnostics/pull-up-product.mp3", delayMs: 11_000 },
-              { url: "/diagnostics/pull-up-proof.mp3", delayMs: 16_000 }
+              { url: `${import.meta.env.BASE_URL}diagnostics/pull-up-dashboard.mp3`, delayMs: 6_000 },
+              { url: `${import.meta.env.BASE_URL}diagnostics/pull-up-product.mp3`, delayMs: 11_000 },
+              { url: `${import.meta.env.BASE_URL}diagnostics/pull-up-proof.mp3`, delayMs: 16_000 }
             ] }
             : diagnosticScenario === "import-flow"
               ? { speechFixtures: [
-                { url: "/diagnostics/pull-up-dashboard.mp3", delayMs: 6_000 },
-                { url: "/diagnostics/pull-up-product.mp3", delayMs: 11_000 },
-                { url: "/diagnostics/pull-up-proof.mp3", delayMs: 16_000 }
+                { url: `${import.meta.env.BASE_URL}diagnostics/pull-up-dashboard.mp3`, delayMs: 6_000 },
+                { url: `${import.meta.env.BASE_URL}diagnostics/pull-up-product.mp3`, delayMs: 11_000 },
+                { url: `${import.meta.env.BASE_URL}diagnostics/pull-up-proof.mp3`, delayMs: 16_000 }
               ] }
         : undefined
     ) : createBrowserMediaProvider(),
@@ -2239,9 +2239,9 @@ export default function App() {
       let cancelled = false;
       void (async () => {
         const fixtures = [
-          ["diagnostic-import-dashboard", "Dashboard.svg", "/diagnostics/Dashboard.svg"],
-          ["diagnostic-import-product", "Product.svg", "/diagnostics/Product.svg"],
-          ["diagnostic-import-proof", "Proof.svg", "/diagnostics/Proof.svg"]
+          ["diagnostic-import-dashboard", "Dashboard.svg", `${import.meta.env.BASE_URL}diagnostics/Dashboard.svg`],
+          ["diagnostic-import-product", "Product.svg", `${import.meta.env.BASE_URL}diagnostics/Product.svg`],
+          ["diagnostic-import-proof", "Proof.svg", `${import.meta.env.BASE_URL}diagnostics/Proof.svg`]
         ] as const;
         const samples = await Promise.all(fixtures.map(async ([id, name, url], index): Promise<StudioAsset> => {
           const response = await fetch(url);
