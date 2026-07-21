@@ -2087,7 +2087,7 @@ button:disabled { color: #aaa69e; border-color: #dfdcd5; background: #f2f0ea; }
 .video-style-studio .creator-sidebar[data-sidebar-page="downloads"] .take-preview,
 .video-style-studio .creator-sidebar[data-sidebar-page="downloads"] .take-actions button {
   border-color: #d5cbc2;
-  color: #7f1836;
+  color: #1d4ed8;
   background: #f5f0e9;
 }
 .video-style-studio .creator-sidebar[data-sidebar-page="downloads"] .take-actions button:hover {
