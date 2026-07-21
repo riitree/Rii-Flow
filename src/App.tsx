@@ -385,6 +385,37 @@ function spawnStyleFor(animation?: EntranceAnimation, sound?: CueSound): SpawnSt
 
 const ACTIVATION_GESTURES = GESTURES.filter((gesture) => gesture.id !== "one" && gesture.id !== "double-fist");
 const STANDALONE_ASSET_GESTURES = GESTURES.filter((gesture) => ["two", "three", "four", "double-one"].includes(gesture.id));
+
+function GesturePosture({ gesture }: { gesture: GestureId }) {
+  const hand = (raisedCount: number, key: string, transform?: string) => {
+    const raisedFrom = 4 - raisedCount;
+    const fingers = [
+      { x: 14, y: 17, height: 22 },
+      { x: 23, y: 10, height: 29 },
+      { x: 32, y: 7, height: 32 },
+      { x: 41, y: 12, height: 27 }
+    ];
+    return <g key={key} transform={transform}>
+      <rect className="posture-palm" x="12" y="34" width="38" height="29" rx="12" />
+      {fingers.map((finger, index) => {
+        const raised = index >= raisedFrom;
+        return <rect key={finger.x} className={raised ? "posture-finger raised" : "posture-finger folded"} x={finger.x} y={raised ? finger.y : 29} width="8" height={raised ? finger.height : 12} rx="4" />;
+      })}
+      <path className="posture-thumb" d="M49 39c8-7 13-5 13 1 0 5-7 11-13 14" />
+      <path className="posture-fold" d="M17 44c8 4 18 4 28 0" />
+    </g>;
+  };
+
+  if (gesture === "double-one") {
+    return <svg className="gesture-posture double" viewBox="0 0 100 72" aria-hidden="true">
+      {hand(1, "left", "translate(0 7) scale(.82)")}
+      {hand(1, "right", "translate(49 7) scale(.82)")}
+    </svg>;
+  }
+  const raised = gesture === "two" ? 2 : gesture === "three" ? 3 : 4;
+  return <svg className="gesture-posture" viewBox="0 0 74 72" aria-hidden="true">{hand(raised, "single", "translate(5 2)")}</svg>;
+}
+
 const OUTPUT_RESOLUTIONS = [
   { id: "720p", label: "720p" },
   { id: "1080p", label: "1080p" },
@@ -6830,7 +6861,7 @@ export default function App() {
                           {STANDALONE_ASSET_GESTURES.map((gesture) => {
                             const visual = gesture.id === "double-one" ? "1 + 1" : gesture.id === "two" ? "2" : gesture.id === "three" ? "3" : "4";
                             const selected = asset.gesture === gesture.id;
-                            return <button type="button" key={gesture.id} className={selected ? "active" : ""} title={gestureOptionLabel(gesture.id, asset.id, asset.gesture)} aria-label={`${gesture.label} for ${asset.name}`} aria-pressed={selected} onClick={() => assignGesture(asset.id, gesture.id)}><i className={gesture.id === "double-one" ? "gesture-choice-hands double" : "gesture-choice-hands"}><Hand size={20} /><b>{visual}</b></i><span>{gesture.id === "double-one" ? "Both" : visual}</span>{selected && <Check size={12} />}</button>;
+                            return <button type="button" key={gesture.id} className={selected ? "active" : ""} title={gestureOptionLabel(gesture.id, asset.id, asset.gesture)} aria-label={`${gesture.label} for ${asset.name}`} aria-pressed={selected} onClick={() => assignGesture(asset.id, gesture.id)}><GesturePosture gesture={gesture.id} /><span>{gesture.id === "double-one" ? "Both index" : visual}</span>{selected && <Check size={12} />}</button>;
                           })}
                         </div>
                       </div>
