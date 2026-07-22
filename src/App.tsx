@@ -387,8 +387,20 @@ const ACTIVATION_GESTURES = GESTURES.filter((gesture) => gesture.id !== "one" &&
 const STANDALONE_ASSET_GESTURES = GESTURES.filter((gesture) => ["two", "three", "four", "double-one"].includes(gesture.id));
 
 function GesturePosture({ gesture }: { gesture: GestureId }) {
-  const emoji = gesture === "double-one" ? "☝️☝️" : gesture === "two" ? "✌️" : gesture === "three" ? "🤟" : "🖐️";
-  const count = gesture === "double-one" ? "1+1" : gesture === "two" ? "2" : gesture === "three" ? "3" : "4";
+  if (gesture === "three" || gesture === "four") {
+    const fingers = gesture === "three" ? [25, 36, 47] : [19, 29, 39, 49];
+    return <span className="gesture-posture emoji counted-hand" aria-hidden="true">
+      <svg viewBox="0 0 68 66">
+        <path className="emoji-hand-palm" d="M17 35 C22 29 48 29 54 36 L55 46 C56 58 47 64 35 64 C23 64 14 57 15 47Z" />
+        {fingers.map((x, index) => <g key={x}><path className="emoji-hand-finger" d={`M${x} 35 L${x} ${index === 0 || index === fingers.length - 1 ? 15 : 9}`} /><path className="emoji-hand-nail" d={`M${x - 2.5} ${index === 0 || index === fingers.length - 1 ? 16 : 10} Q${x} ${index === 0 || index === fingers.length - 1 ? 13 : 7} ${x + 2.5} ${index === 0 || index === fingers.length - 1 ? 16 : 10}`} /></g>)}
+        <path className="emoji-hand-thumb" d="M18 39 C10 32 5 34 7 41 C9 47 14 51 20 52" />
+        <path className="emoji-hand-fold" d="M22 47 Q35 42 49 47" />
+      </svg>
+      <i>{gesture === "three" ? "3" : "4"}</i>
+    </span>;
+  }
+  const emoji = gesture === "double-one" ? "☝️☝️" : gesture === "two" ? "✌️" : "☝️";
+  const count = gesture === "double-one" ? "1+1" : gesture === "two" ? "2" : "1";
   return <span className={`gesture-posture emoji ${gesture === "double-one" ? "double" : ""}`} aria-hidden="true"><b>{emoji}</b><i>{count}</i></span>;
 }
 
@@ -6823,11 +6835,13 @@ export default function App() {
                 {assets.some((asset) => asset.kind !== "text") && <p className="workflow-gesture-note"><Hand size={14} /><span><strong>Direct gestures are optional.</strong> Pointing, open palm, thumbs-up and fists remain reserved for universal controls.</span></p>}
                 <div className="workflow-media-assignment-list">
                   {assets.filter((asset) => asset.kind !== "text").map((asset) => <div className={`workflow-file-card ${asset.kind}`} key={asset.id}>
-                    <div className={`workflow-asset-preview ${asset.kind}`} aria-label={`Preview of ${asset.name}`}>
-                      {asset.kind === "image" && asset.sourceUrl ? <img src={asset.sourceUrl} alt={`Preview of ${asset.name}`} /> : asset.kind === "video" && asset.sourceUrl ? <video src={asset.sourceUrl} muted playsInline preload="metadata" aria-label={`Paused preview of ${asset.name}`} onLoadedMetadata={(event) => { const video = event.currentTarget; const previewTime = Math.max(.04, asset.videoTrim?.start ?? .04); video.currentTime = Math.min(previewTime, Math.max(0, video.duration - .04)); }} /> : <span>{asset.kind === "csv" ? <FileSpreadsheet size={32} /> : <FileJson2 size={32} />}<strong>{asset.kind.toUpperCase()}</strong></span>}
-                      <em>{asset.kind === "video" ? <><Play size={11} fill="currentColor" /> Video preview</> : asset.kind === "image" ? <><ImageIcon size={11} /> Image preview</> : <>Data file</>}</em>
+                    <div className="workflow-asset-visual">
+                      <div className={`workflow-asset-preview ${asset.kind}`} aria-label={`Preview of ${asset.name}`}>
+                        {asset.kind === "image" && asset.sourceUrl ? <img src={asset.sourceUrl} alt={`Preview of ${asset.name}`} /> : asset.kind === "video" && asset.sourceUrl ? <video src={asset.sourceUrl} muted playsInline preload="metadata" aria-label={`Paused preview of ${asset.name}`} onLoadedMetadata={(event) => { const video = event.currentTarget; const previewTime = Math.max(.04, asset.videoTrim?.start ?? .04); video.currentTime = Math.min(previewTime, Math.max(0, video.duration - .04)); }} /> : <span>{asset.kind === "csv" ? <FileSpreadsheet size={32} /> : <FileJson2 size={32} />}<strong>{asset.kind.toUpperCase()}</strong></span>}
+                        <em>{asset.kind === "video" ? <><Play size={11} fill="currentColor" /> Video preview</> : asset.kind === "image" ? <><ImageIcon size={11} /> Image preview</> : <>Data file</>}</em>
+                      </div>
+                      <span className="workflow-file"><i>{asset.kind === "video" ? <Video size={13} /> : asset.kind === "image" ? <ImageIcon size={13} /> : <FileSpreadsheet size={13} />}</i><strong title={asset.name}>{shortName(asset.name, 28)}</strong>{(asset.kind === "image" || asset.kind === "video") && <button className="workflow-file-edit" aria-label={`${asset.kind === "video" ? "Trim" : "Crop"} ${asset.name}`} title={asset.kind === "video" ? "Trim video" : "Crop image"} onClick={() => openAssetEditor(asset)}>{asset.kind === "video" ? <Scissors size={13} /> : <Crop size={13} />}<span>{asset.kind === "video" ? "Trim" : "Crop"}</span></button>}<button aria-label={`Remove ${asset.name}`} title="Remove media" onClick={() => removeAsset(asset)}><X size={13} /></button></span>
                     </div>
-                    <span className="workflow-file"><i>{asset.kind === "video" ? <Video size={13} /> : asset.kind === "image" ? <ImageIcon size={13} /> : <FileSpreadsheet size={13} />}</i><strong title={asset.name}>{shortName(asset.name, 28)}</strong>{(asset.kind === "image" || asset.kind === "video") && <button className="workflow-file-edit" aria-label={`${asset.kind === "video" ? "Trim" : "Crop"} ${asset.name}`} title={asset.kind === "video" ? "Trim video" : "Crop image"} onClick={() => openAssetEditor(asset)}>{asset.kind === "video" ? <Scissors size={13} /> : <Crop size={13} />}<span>{asset.kind === "video" ? "Trim" : "Crop"}</span></button>}<button aria-label={`Remove ${asset.name}`} title="Remove media" onClick={() => removeAsset(asset)}><X size={13} /></button></span>
                     {asset.kind === "video" && <button className={`workflow-video-audio ${asset.includeAudio ? "active" : ""}`} aria-pressed={Boolean(asset.includeAudio)} onClick={() => toggleVideoAudio(asset)}>{asset.includeAudio ? <Volume2 size={13} /> : <VolumeX size={13} />}<span><strong>{asset.includeAudio ? "Video sound included" : "Video sound muted"}</strong><small>{asset.includeAudio ? "Will be heard in the final recording" : "Click to include it in the recording"}</small></span></button>}
                     <div className="workflow-assignment-label"><Sparkles size={13} /><span>Entrance settings</span></div>
                     <div className="workflow-file-options">
