@@ -387,21 +387,34 @@ const ACTIVATION_GESTURES = GESTURES.filter((gesture) => gesture.id !== "one" &&
 const STANDALONE_ASSET_GESTURES = GESTURES.filter((gesture) => ["two", "three", "four", "double-one"].includes(gesture.id));
 
 function GesturePosture({ gesture }: { gesture: GestureId }) {
-  if (gesture === "three" || gesture === "four") {
-    const fingers = gesture === "three" ? [25, 36, 47] : [19, 29, 39, 49];
-    return <span className="gesture-posture emoji counted-hand" aria-hidden="true">
-      <svg viewBox="0 0 68 66">
-        <path className="emoji-hand-palm" d="M17 35 C22 29 48 29 54 36 L55 46 C56 58 47 64 35 64 C23 64 14 57 15 47Z" />
-        {fingers.map((x, index) => <g key={x}><path className="emoji-hand-finger" d={`M${x} 35 L${x} ${index === 0 || index === fingers.length - 1 ? 15 : 9}`} /><path className="emoji-hand-nail" d={`M${x - 2.5} ${index === 0 || index === fingers.length - 1 ? 16 : 10} Q${x} ${index === 0 || index === fingers.length - 1 ? 13 : 7} ${x + 2.5} ${index === 0 || index === fingers.length - 1 ? 16 : 10}`} /></g>)}
-        <path className="emoji-hand-thumb" d="M18 39 C10 32 5 34 7 41 C9 47 14 51 20 52" />
-        <path className="emoji-hand-fold" d="M22 47 Q35 42 49 47" />
-      </svg>
-      <i>{gesture === "three" ? "3" : "4"}</i>
-    </span>;
+  const hand = (raisedCount: number, key: string, transform?: string) => {
+    const raisedFrom = 4 - raisedCount;
+    const fingers = [
+      { raised: "M24 44 C20 34 18 25 20 17", folded: "M24 44 C20 40 20 35 25 34", tip: [20, 17] },
+      { raised: "M31 42 C29 29 28 18 30 9", folded: "M31 42 C27 37 29 32 34 32", tip: [30, 9] },
+      { raised: "M38 41 C38 27 38 15 40 6", folded: "M38 41 C35 36 37 31 42 32", tip: [40, 6] },
+      { raised: "M45 43 C48 31 49 21 50 12", folded: "M45 43 C43 38 46 34 50 36", tip: [50, 12] }
+    ];
+    return <g key={key} transform={transform}>
+      <path className="posture-palm" d="M22 42 C27 37 43 37 49 42 C55 48 53 61 47 66 C41 71 28 70 22 64 C17 59 17 48 22 42Z" />
+      <path className="posture-wrist" d="M28 66 L28 72 M44 66 L44 72" />
+      {fingers.map((finger, index) => {
+        const raised = index >= raisedFrom;
+        return <g key={finger.raised}><path className={raised ? "posture-finger raised" : "posture-finger folded"} d={raised ? finger.raised : finger.folded} />{raised && <circle className="posture-tip" cx={finger.tip[0]} cy={finger.tip[1]} r="2.4" />}</g>;
+      })}
+      <path className="posture-thumb" d="M49 45 C57 37 64 38 63 44 C62 49 56 53 50 56" />
+      <path className="posture-fold" d="M26 53 C32 49 41 49 47 53" />
+    </g>;
+  };
+
+  if (gesture === "double-one") {
+    return <svg className="gesture-posture double" viewBox="0 0 118 76" aria-hidden="true">
+      {hand(1, "left", "translate(0 8) scale(.78)")}
+      {hand(1, "right", "translate(58 8) scale(.78)")}
+    </svg>;
   }
-  const emoji = gesture === "double-one" ? "☝️☝️" : gesture === "two" ? "✌️" : "☝️";
-  const count = gesture === "double-one" ? "1+1" : gesture === "two" ? "2" : "1";
-  return <span className={`gesture-posture emoji ${gesture === "double-one" ? "double" : ""}`} aria-hidden="true"><b>{emoji}</b><i>{count}</i></span>;
+  const raised = gesture === "two" ? 2 : gesture === "three" ? 3 : 4;
+  return <svg className="gesture-posture" viewBox="0 0 74 72" aria-hidden="true">{hand(raised, "single", "translate(5 2)")}</svg>;
 }
 
 const OUTPUT_RESOLUTIONS = [
@@ -6834,31 +6847,29 @@ export default function App() {
                 <button className="workflow-primary" onClick={() => fileInputRef.current?.click()}><Upload size={16} /> {assets.some((asset) => asset.kind !== "text") ? "Import from another folder" : "Choose photos or videos"}</button>
                 {assets.some((asset) => asset.kind !== "text") && <p className="workflow-gesture-note"><Hand size={14} /><span><strong>Direct gestures are optional.</strong> Pointing, open palm, thumbs-up and fists remain reserved for universal controls.</span></p>}
                 <div className="workflow-media-assignment-list">
-                  {assets.filter((asset) => asset.kind !== "text").map((asset) => <div className={`workflow-file-card ${asset.kind}`} key={asset.id}>
-                    <div className="workflow-asset-visual">
-                      <div className={`workflow-asset-preview ${asset.kind}`} aria-label={`Preview of ${asset.name}`}>
-                        {asset.kind === "image" && asset.sourceUrl ? <img src={asset.sourceUrl} alt={`Preview of ${asset.name}`} /> : asset.kind === "video" && asset.sourceUrl ? <video src={asset.sourceUrl} muted playsInline preload="metadata" aria-label={`Paused preview of ${asset.name}`} onLoadedMetadata={(event) => { const video = event.currentTarget; const previewTime = Math.max(.04, asset.videoTrim?.start ?? .04); video.currentTime = Math.min(previewTime, Math.max(0, video.duration - .04)); }} /> : <span>{asset.kind === "csv" ? <FileSpreadsheet size={32} /> : <FileJson2 size={32} />}<strong>{asset.kind.toUpperCase()}</strong></span>}
-                        <em>{asset.kind === "video" ? <><Play size={11} fill="currentColor" /> Video preview</> : asset.kind === "image" ? <><ImageIcon size={11} /> Image preview</> : <>Data file</>}</em>
-                      </div>
-                      <span className="workflow-file"><i>{asset.kind === "video" ? <Video size={13} /> : asset.kind === "image" ? <ImageIcon size={13} /> : <FileSpreadsheet size={13} />}</i><strong title={asset.name}>{shortName(asset.name, 28)}</strong>{(asset.kind === "image" || asset.kind === "video") && <button className="workflow-file-edit" aria-label={`${asset.kind === "video" ? "Trim" : "Crop"} ${asset.name}`} title={asset.kind === "video" ? "Trim video" : "Crop image"} onClick={() => openAssetEditor(asset)}>{asset.kind === "video" ? <Scissors size={13} /> : <Crop size={13} />}<span>{asset.kind === "video" ? "Trim" : "Crop"}</span></button>}<button aria-label={`Remove ${asset.name}`} title="Remove media" onClick={() => removeAsset(asset)}><X size={13} /></button></span>
+                  {assets.filter((asset) => asset.kind !== "text").map((asset) => <div className="workflow-file-card" key={asset.id}>
+                    <div className={`workflow-asset-preview ${asset.kind}`} aria-label={`Preview of ${asset.name}`}>
+                      {asset.kind === "image" && asset.sourceUrl ? <img src={asset.sourceUrl} alt={`Preview of ${asset.name}`} /> : asset.kind === "video" && asset.sourceUrl ? <video src={asset.sourceUrl} muted playsInline preload="metadata" aria-label={`Paused preview of ${asset.name}`} onLoadedMetadata={(event) => { const video = event.currentTarget; const previewTime = Math.max(.04, asset.videoTrim?.start ?? .04); video.currentTime = Math.min(previewTime, Math.max(0, video.duration - .04)); }} /> : <span>{asset.kind === "csv" ? <FileSpreadsheet size={32} /> : <FileJson2 size={32} />}<strong>{asset.kind.toUpperCase()}</strong></span>}
+                      <em>{asset.kind === "video" ? <><Play size={11} fill="currentColor" /> Video preview</> : asset.kind === "image" ? <><ImageIcon size={11} /> Image preview</> : <>Data file</>}</em>
                     </div>
+                    <span className="workflow-file"><i>{asset.kind === "video" ? <Video size={13} /> : asset.kind === "image" ? <ImageIcon size={13} /> : <FileSpreadsheet size={13} />}</i><strong title={asset.name}>{shortName(asset.name, 28)}</strong>{(asset.kind === "image" || asset.kind === "video") && <button className="workflow-file-edit" aria-label={`${asset.kind === "video" ? "Trim" : "Crop"} ${asset.name}`} title={asset.kind === "video" ? "Trim video" : "Crop image"} onClick={() => openAssetEditor(asset)}>{asset.kind === "video" ? <Scissors size={13} /> : <Crop size={13} />}<span>{asset.kind === "video" ? "Trim" : "Crop"}</span></button>}<button aria-label={`Remove ${asset.name}`} title="Remove media" onClick={() => removeAsset(asset)}><X size={13} /></button></span>
                     {asset.kind === "video" && <button className={`workflow-video-audio ${asset.includeAudio ? "active" : ""}`} aria-pressed={Boolean(asset.includeAudio)} onClick={() => toggleVideoAudio(asset)}>{asset.includeAudio ? <Volume2 size={13} /> : <VolumeX size={13} />}<span><strong>{asset.includeAudio ? "Video sound included" : "Video sound muted"}</strong><small>{asset.includeAudio ? "Will be heard in the final recording" : "Click to include it in the recording"}</small></span></button>}
-                    <div className="workflow-assignment-label"><Sparkles size={13} /><span>Entrance settings</span></div>
+                    <div className="workflow-assignment-label"><Sparkles size={13} /><span>How this media enters the recording</span></div>
                     <div className="workflow-file-options">
-                      <label><span>Animation</span><select aria-label={`Spawn animation for ${asset.name}`} value={asset.entranceAnimation ?? "fade"} onChange={(event) => updateAsset(asset.id, { entranceAnimation: event.target.value as EntranceAnimation })}>{ENTRANCE_ANIMATIONS.map((animation) => <option key={animation.id} value={animation.id}>{animation.label}</option>)}</select></label>
-                      <label><span>Sound</span><select aria-label={`Spawn sound for ${asset.name}`} value={asset.cueSound ?? "none"} onChange={(event) => updateAsset(asset.id, { cueSound: event.target.value as CueSound })}>{CUE_SOUNDS.map((sound) => <option key={sound.id} value={sound.id}>{sound.label}</option>)}</select></label>
+                      <label><span>Spawn animation</span><select aria-label={`Spawn animation for ${asset.name}`} value={asset.entranceAnimation ?? "fade"} onChange={(event) => updateAsset(asset.id, { entranceAnimation: event.target.value as EntranceAnimation })}>{ENTRANCE_ANIMATIONS.map((animation) => <option key={animation.id} value={animation.id}>{animation.label}</option>)}</select></label>
+                      <label><span>Spawn sound</span><select aria-label={`Spawn sound for ${asset.name}`} value={asset.cueSound ?? "none"} onChange={(event) => updateAsset(asset.id, { cueSound: event.target.value as CueSound })}>{CUE_SOUNDS.map((sound) => <option key={sound.id} value={sound.id}>{sound.label}</option>)}</select></label>
                       <div className="workflow-size-picker" role="group" aria-label={`Spawn size for ${asset.name}`}>
-                        <span><strong>Size</strong><small>On screen</small></span>
+                        <span><strong>Spawn size</strong><small>Choose visually</small></span>
                         <div>{ASSET_SIZES.map((size) => { const selected = asset.size === size.id; return <button type="button" key={size.id} className={selected ? "active" : ""} aria-label={`${size.label} spawn size for ${asset.name}`} aria-pressed={selected} onClick={() => updateAsset(asset.id, { size: size.id, transform: undefined })}><i className={`spawn-size-visual ${size.id}`}><b /></i><span>{size.label}</span>{selected && <Check size={12} />}</button>; })}</div>
                       </div>
                       <div className="workflow-gesture-picker" role="group" aria-label={`Direct gesture for ${asset.name}`}>
-                        <span className="workflow-gesture-picker-title"><Hand size={14} /><strong>Choose a gesture</strong><small>Optional</small></span>
+                        <span className="workflow-gesture-picker-title"><Hand size={14} /><strong>Gesture</strong><small>Optional</small></span>
                         <div>
                           <button type="button" className={!asset.gesture ? "active" : ""} aria-label={`No direct gesture for ${asset.name}`} aria-pressed={!asset.gesture} onClick={() => assignGesture(asset.id, undefined)}><i className="gesture-choice-none">—</i><span>None</span>{!asset.gesture && <Check size={12} />}</button>
                           {STANDALONE_ASSET_GESTURES.map((gesture) => {
-                            const visual = gesture.id === "double-one" ? "Both index" : gesture.id === "two" ? "Two" : gesture.id === "three" ? "Three" : "Four";
+                            const visual = gesture.id === "double-one" ? "1 + 1" : gesture.id === "two" ? "2" : gesture.id === "three" ? "3" : "4";
                             const selected = asset.gesture === gesture.id;
-                            return <button type="button" key={gesture.id} className={selected ? "active" : ""} title={gestureOptionLabel(gesture.id, asset.id, asset.gesture)} aria-label={`${gesture.label} for ${asset.name}`} aria-pressed={selected} onClick={() => assignGesture(asset.id, gesture.id)}><GesturePosture gesture={gesture.id} /><span>{visual}</span>{selected && <Check size={12} />}</button>;
+                            return <button type="button" key={gesture.id} className={selected ? "active" : ""} title={gestureOptionLabel(gesture.id, asset.id, asset.gesture)} aria-label={`${gesture.label} for ${asset.name}`} aria-pressed={selected} onClick={() => assignGesture(asset.id, gesture.id)}><GesturePosture gesture={gesture.id} /><span>{gesture.id === "double-one" ? "Both index" : visual}</span>{selected && <Check size={12} />}</button>;
                           })}
                         </div>
                       </div>
